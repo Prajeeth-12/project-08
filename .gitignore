@@ -33,5 +33,8 @@ out/
 Thumbs.db
 desktop.ini
 
+# Planning docs (local only)
+planning/
+
 # Typst build artifacts
 *.typ.bak
