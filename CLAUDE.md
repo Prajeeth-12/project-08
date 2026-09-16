@@ -20,17 +20,17 @@
 - **AI / LLM:** Hybrid / Model-Agnostic (Gemini 1.5 Flash/Pro + OpenAI compatible)
 - **Document Engine:** Typst (v0.15+) / LaTeX for clean, anti-AI-slop PDF exports
 
-## 4. 10-Member Minimal Task & File Allocation Matrix
+## 4. 10-Member Task & File Allocation
 Each member builds a minimal, isolated vertical slice (1 UI Component + 1 API Endpoint + 1 DB Model + 1 Unit Test):
 
-### Squad A (Live Core Engine & Coding Tools):
+### Team A (Live Core Engine & Coding Tools):
 - **A1 (`feat/a1-editor-workspace`):** Monaco Editor + Auto-save (`POST /api/code/drafts`, `models/draft.py`, `MonacoEditor.tsx`).
 - **A2 (`feat/a2-sandbox-judge0`):** Judge0 Sandbox Execution (`POST /api/code/execute`, `models/submission.py`, `TestConsole.tsx`).
 - **A3 (`feat/a3-live-interview-room`):** Live Interview Room & WebSocket State (`POST /api/sessions/start`, `models/session.py`, `LiveCockpit.tsx`).
 - **A4 (`feat/a4-probing-agent`):** Dynamic Real-Time AI Probing Agent (`POST /api/ai/live-probe`, `models/agent_turn.py`, `ProbingStatus.tsx`).
 - **A5 (`feat/a5-code-review-ast`):** AI Code Review & Big-O AST (`POST /api/ai/code-review`, `models/review.py`, `CodeReviewCard.tsx`).
 
-### Squad B (Platform, Resume Intelligence & Formal Exam Suite):
+### Team B (Platform, Resume Intelligence & Formal Exam Suite):
 - **B1 (`feat/b1-auth-candidate-hub`):** Auth, JWT & Candidate RBAC (`POST /api/auth/login & register`, `models/user.py`, `AuthModal.tsx`).
 - **B2 (`feat/b2-resume-claim-parser`):** Resume PDF Parser & Claims (`POST /api/resumes/parse`, `models/resume_claim.py`, `ResumeViewer.tsx`).
 - **B3 (`feat/b3-problem-blueprints`):** Question Bank & Blueprints (`POST /api/questions/blueprint`, `models/blueprint.py`, `QuestionBank.tsx`).
