@@ -17,22 +17,22 @@ Our mentor has been added as a GitHub collaborator to review Pull Requests (PRs)
 ```mermaid
 flowchart TD
     subgraph Track1["Module 1: Formal Coding Track (5 Members)"]
-        M1["Member 1: Problem Blueprints & Testcase Bank<br/>Branch: feat/b3-problem-blueprints"]
-        M2["Member 2: Candidate Exam Portal & SEB Lockdown<br/>Branch: feat/b4-exam-portal-seb"]
-        M3["Member 3: Monaco Code Editor & Draft Persistence<br/>Branch: feat/a1-editor-workspace"]
-        M4["Member 4: Judge0 Execution Sandbox Engine<br/>Branch: feat/a2-sandbox-judge0"]
-        M5["Member 5: Verdict Engine & Static Code Analysis<br/>Branch: feat/a5-code-review-ast"]
+        M1["Member 1: Problem Blueprints & Testcase Bank<br/>Branch: feat/fc-problem-blueprints"]
+        M2["Member 2: Candidate Exam Portal & SEB Lockdown<br/>Branch: feat/fc-exam-portal-seb"]
+        M3["Member 3: Monaco Code Editor & Draft Persistence<br/>Branch: feat/fc-monaco-editor"]
+        M4["Member 4: Judge0 Execution Sandbox Engine<br/>Branch: feat/fc-judge0-sandbox"]
+        M5["Member 5: Verdict Engine & Static Code Analysis<br/>Branch: feat/fc-verdict-engine"]
     end
 
     subgraph Track2A["Module 2A: Resume Intelligence & RAG (2 Members)"]
-        M6["Member 6: Resume Document Ingestion & Claim Extraction<br/>Branch: feat/b2-resume-claim-parser"]
-        M7["Member 7: Semantic Chunking & RAG Vector Retrieval<br/>Branch: feat/b1-auth-candidate-hub"]
+        M6["Member 6: Resume Document Ingestion & Claim Extraction<br/>Branch: feat/ai-resume-claim-parser"]
+        M7["Member 7: Semantic Chunking & RAG Vector Retrieval<br/>Branch: feat/ai-resume-rag-retrieval"]
     end
 
     subgraph Track2B["Module 2B: AI Interview Agent (3 Members)"]
-        M_LEAD["Lead Architect (Me): Master Stateful Agent Loop<br/>Branch: develop (Core Orchestration)"]
-        M8["Member 8: Live Interview Cockpit UI & WebSocket Client<br/>Branch: feat/a3-live-interview"]
-        M9["Member 9: Turn Rubric Scoring & Scorecard Analytics<br/>Branch: feat/b5-analytics-rubric-coach"]
+        M_LEAD["Lead Architect (Me): Master Stateful Agent Loop<br/>Branch: feat/ai-agent-core & develop"]
+        M8["Member 8: Live Interview Cockpit UI & WebSocket Client<br/>Branch: feat/ai-interview-cockpit"]
+        M9["Member 9: Turn Rubric Scoring & Scorecard Analytics<br/>Branch: feat/ai-rubric-evaluator"]
     end
 
     Track1 --> INTEGRATION["Central Integration Branch (develop)<br/>Lead Architect Merge & Verification"]
@@ -46,23 +46,23 @@ flowchart TD
 
 | # | Student Role | Module | Assigned Branch | Frontend Component | Backend API Router | DB Model | Pytest Suite |
 |---|---|---|---|---|---|---|---|
-| **1** | Problem Blueprints | Formal Coding | `feat/b3-problem-blueprints` | `frontend/components/team_b/QuestionBank.tsx` | `backend/api/questions.py` | `backend/models/blueprint.py` | `backend/tests/test_questions.py` |
-| **2** | SEB Exam Portal | Formal Coding | `feat/b4-exam-portal-seb` | `frontend/components/team_b/ExamPortal.tsx` | `backend/api/exams.py` | `backend/models/formal_exam.py` | `backend/tests/test_exams.py` |
-| **3** | Monaco Code Editor | Formal Coding | `feat/a1-editor-workspace` | `frontend/components/team_a/MonacoEditor.tsx` | `backend/api/drafts.py` | `backend/models/draft.py` | `backend/tests/test_drafts.py` |
-| **4** | Judge0 Sandbox | Formal Coding | `feat/a2-sandbox-judge0` | `frontend/components/team_a/TestConsole.tsx` | `backend/api/execution.py` | `backend/models/submission.py` | `backend/tests/test_execution.py` |
-| **5** | Verdict & Review | Formal Coding | `feat/a5-code-review-ast` | `frontend/components/team_a/CodeReviewCard.tsx` | `backend/api/code_review.py` | `backend/models/review.py` | `backend/tests/test_code_review.py` |
-| **6** | Resume Claim Parser | AI Interview (RAG) | `feat/b2-resume-claim-parser` | `frontend/components/team_b/ResumeViewer.tsx` | `backend/api/resumes.py` | `backend/models/resume_claim.py` | `backend/tests/test_resumes.py` |
-| **7** | RAG Vector Engine | AI Interview (RAG) | `feat/b1-auth-candidate-hub` | `frontend/components/team_b/AuthModal.tsx` | `backend/api/auth.py` | `backend/models/user.py` | `backend/tests/test_auth.py` |
-| **8** | Interview Cockpit | AI Interview (Agent) | `feat/a3-live-interview` | `frontend/components/team_a/LiveCockpit.tsx` | `backend/api/sessions.py` | `backend/models/session.py` | `backend/tests/test_sessions.py` |
-| **9** | Rubric Evaluator | AI Interview (Agent) | `feat/b5-analytics-rubric-coach` | `frontend/components/team_b/ScorecardView.tsx` | `backend/api/evaluations.py` | `backend/models/rubric.py` | `backend/tests/test_evaluations.py` |
-| **10**| **Lead Architect (Me)**| Master Orchestration | `develop` (Integration) | `frontend/app/page.tsx` & Root Layout | `backend/main.py` & Agent Core | Master Schemas | Integration Test Suite |
+| **1** | Problem Blueprints | Formal Coding | `feat/fc-problem-blueprints` | `frontend/components/team_b/QuestionBank.tsx` | `backend/api/questions.py` | `backend/models/blueprint.py` | `backend/tests/test_questions.py` |
+| **2** | SEB Exam Portal | Formal Coding | `feat/fc-exam-portal-seb` | `frontend/components/team_b/ExamPortal.tsx` | `backend/api/exams.py` | `backend/models/formal_exam.py` | `backend/tests/test_exams.py` |
+| **3** | Monaco Code Editor | Formal Coding | `feat/fc-monaco-editor` | `frontend/components/team_a/MonacoEditor.tsx` | `backend/api/drafts.py` | `backend/models/draft.py` | `backend/tests/test_drafts.py` |
+| **4** | Judge0 Sandbox | Formal Coding | `feat/fc-judge0-sandbox` | `frontend/components/team_a/TestConsole.tsx` | `backend/api/execution.py` | `backend/models/submission.py` | `backend/tests/test_execution.py` |
+| **5** | Verdict & Review | Formal Coding | `feat/fc-verdict-engine` | `frontend/components/team_a/CodeReviewCard.tsx` | `backend/api/code_review.py` | `backend/models/review.py` | `backend/tests/test_code_review.py` |
+| **6** | Resume Claim Parser | AI Interview (RAG) | `feat/ai-resume-claim-parser` | `frontend/components/team_b/ResumeViewer.tsx` | `backend/api/resumes.py` | `backend/models/resume_claim.py` | `backend/tests/test_resumes.py` |
+| **7** | RAG Vector Engine | AI Interview (RAG) | `feat/ai-resume-rag-retrieval` | `frontend/components/team_b/AuthModal.tsx` | `backend/api/auth.py` | `backend/models/user.py` | `backend/tests/test_auth.py` |
+| **8** | Interview Cockpit | AI Interview (Agent) | `feat/ai-interview-cockpit` | `frontend/components/team_a/LiveCockpit.tsx` | `backend/api/sessions.py` | `backend/models/session.py` | `backend/tests/test_sessions.py` |
+| **9** | Rubric Evaluator | AI Interview (Agent) | `feat/ai-rubric-evaluator` | `frontend/components/team_b/ScorecardView.tsx` | `backend/api/evaluations.py` | `backend/models/rubric.py` | `backend/tests/test_evaluations.py` |
+| **10**| **Lead Architect (Me)**| Master Orchestration | `feat/ai-agent-core` & `develop` | `frontend/app/page.tsx` & Root Layout | `backend/main.py` & Agent Core | Master Schemas | Integration Test Suite |
 
 ---
 
 ## 3. Module 1: Formal Coding Track (5 Members)
 
 ### Member 1: Problem Blueprints & Testcase Bank
-* **Branch:** `feat/b3-problem-blueprints`
+* **Branch:** `feat/fc-problem-blueprints`
 * **Objective:** Build the authoring and cataloging engine for coding problems and test suites.
 * **Component Responsibilities:**
   * **Frontend (`QuestionBank.tsx`):** Problem browser with difficulty badges (Easy, Medium, Hard), tag filters (Array, DP, Graph), search bar, and problem statement preview card with sample I/O.
@@ -76,7 +76,7 @@ flowchart TD
 ---
 
 ### Member 2: Candidate Exam Portal & SEB Lockdown Environment
-* **Branch:** `feat/b4-exam-portal-seb`
+* **Branch:** `feat/fc-exam-portal-seb`
 * **Objective:** Secure assessment entry, passcode verification, countdown timing, and lockdown proctoring.
 * **Component Responsibilities:**
   * **Frontend (`ExamPortal.tsx`):** Full-screen exam dashboard with live countdown clock, proctoring warning banner, candidate profile chip, and violation alert modal.
@@ -90,7 +90,7 @@ flowchart TD
 ---
 
 ### Member 3: Multi-Language Monaco Code Editor & Draft Persistence
-* **Branch:** `feat/a1-editor-workspace`
+* **Branch:** `feat/fc-monaco-editor`
 * **Objective:** Deliver a responsive in-browser IDE with boilerplate injection and continuous auto-save.
 * **Component Responsibilities:**
   * **Frontend (`MonacoEditor.tsx`):** Monaco Editor integration supporting Python (3.11), Java (OpenJDK 17), C++ (GCC 9.2), and JavaScript (Node 18). Includes theme switching (vs-dark / light), font scaling, language dropdown, and a live "Auto-saved 2s ago" status chip.
@@ -103,7 +103,7 @@ flowchart TD
 ---
 
 ### Member 4: Judge0 Execution Sandbox & Runner API
-* **Branch:** `feat/a2-sandbox-judge0`
+* **Branch:** `feat/fc-judge0-sandbox`
 * **Objective:** Secure, asynchronous code execution against custom inputs using Judge0 CE.
 * **Component Responsibilities:**
   * **Frontend (`TestConsole.tsx`):** Tabbed execution panel with custom stdin input area, stdout output terminal, stderr display, execution time indicator, and peak memory gauge.
@@ -116,7 +116,7 @@ flowchart TD
 ---
 
 ### Member 5: Assessment Verdict Engine & Static Code Analysis
-* **Branch:** `feat/a5-code-review-ast`
+* **Branch:** `feat/fc-verdict-engine`
 * **Objective:** Automated assessment grading against hidden test suites and AST code analysis.
 * **Component Responsibilities:**
   * **Frontend (`CodeReviewCard.tsx`):** Post-submission verdict card showing overall score, passed test case ratio (e.g. 10/10 Passed), time/space complexity analysis, and clean code suggestions.
@@ -133,7 +133,7 @@ flowchart TD
 ### Track 2A: Resume Intelligence & RAG Pipeline (2 Members)
 
 #### Member 6: Resume Document Ingestion & Structured Claim Extraction
-* **Branch:** `feat/b2-resume-claim-parser`
+* **Branch:** `feat/ai-resume-claim-parser`
 * **Objective:** Parse uploaded candidate resumes and structure contents into verifiable claims.
 * **Component Responsibilities:**
   * **Frontend (`ResumeViewer.tsx`):** Resume upload dropzone supporting PDF, side-by-side parsed preview, detected technical skills chips, and verified experience cards.
@@ -146,7 +146,7 @@ flowchart TD
 ---
 
 #### Member 7: Semantic Chunking, Vector Embeddings & RAG Retrieval API
-* **Branch:** `feat/b1-auth-candidate-hub`
+* **Branch:** `feat/ai-resume-rag-retrieval`
 * **Objective:** Implement the RAG vector search engine enabling the AI interviewer to probe resume claims.
 * **Component Responsibilities:**
   * **Frontend (`AuthModal.tsx`):** Candidate profile hub displaying active resume indexing status, verified skills, and knowledge readiness badge.
@@ -179,7 +179,7 @@ sequenceDiagram
 ```
 
 #### Lead Architect (Me): Master Stateful Agent Loop & Orchestration
-* **Branch:** `develop` (Master Core Integration)
+* **Branch:** `feat/ai-agent-core` & `develop` (Master Core Integration)
 * **Objective:** Build the conversational agent state machine and multi-turn interview loop.
 * **Core Responsibilities:**
   * **Stateful Agent Loop:** Implement **Observe -> Reason -> Decide -> Act** cycle.
@@ -190,7 +190,7 @@ sequenceDiagram
 ---
 
 #### Member 8: Live Interview Cockpit UI & WebSocket Client
-* **Branch:** `feat/a3-live-interview`
+* **Branch:** `feat/ai-interview-cockpit`
 * **Objective:** Candidate-facing real-time interview cockpit with audio stream controls.
 * **Component Responsibilities:**
   * **Frontend (`LiveCockpit.tsx`):** Real-time room layout featuring candidate webcam feed, AI waveform audio visualizer, real-time message transcript feed, speaking status indicators, and modal prompt cards.
@@ -203,7 +203,7 @@ sequenceDiagram
 ---
 
 #### Member 9: Turn-by-Turn Rubric Scoring & Performance Scorecard
-* **Branch:** `feat/b5-analytics-rubric-coach`
+* **Branch:** `feat/ai-rubric-evaluator`
 * **Objective:** Quantitative candidate scoring and executive performance scorecard generation.
 * **Component Responsibilities:**
   * **Frontend (`ScorecardView.tsx`):** Executive post-interview evaluation report with radar chart (Communication, Technical Depth, Problem Solving, System Design), turn breakdown, and actionable coaching tips.
