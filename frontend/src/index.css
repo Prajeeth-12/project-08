@@ -1,0 +1,749 @@
+/* Theme 03 — Bold Red & Gold on White */
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 0 72% 51%; /* #DC2626 Bold Red */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 45 93% 47%; /* #EAB308 Gold */
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 0 0% 98%; /* #FAFAFA */
+    --muted-foreground: 215 16% 47%; /* #4B5563 */
+
+    --accent: 48 96% 89%; /* #FEF3C7 Light Gold Tint */
+    --accent-foreground: 32 81% 29%; /* #92400E Dark Gold */
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%; /* #E5E7EB */
+    --input: 220 13% 91%;
+    --ring: 0 72% 51%; /* #DC2626 */
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-primary: 0 72% 51%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 48 96% 89%;
+    --sidebar-accent-foreground: 32 81% 29%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 0 72% 51%;
+
+    /* Theme 03 Brand Tokens */
+    --brand-red: #DC2626;
+    --brand-red-hover: #B91C1C;
+    --brand-gold: #EAB308;
+    --brand-gold-light: #FEF3C7;
+    --brand-gold-dark: #92400E;
+    --brand-gold-hover: #FACC15;
+    --brand-dark: #111827;
+    --brand-gray: #4B5563;
+    --brand-muted: #6B7280;
+    --brand-light: #FAFAFA;
+    --brand-border: #F3F4F6;
+
+    /* Voice-First Lighting Tokens (Theme 03) */
+    --voice-red: #DC2626;
+    --voice-gold: #EAB308;
+    --voice-dark-red: #B91C1C;
+    --voice-dark: #111827;
+    --voice-light-gray: #FAFAFA;
+    --voice-gray: #4B5563;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border selection:bg-red-500/20 selection:text-red-950;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  html {
+    @apply scroll-smooth;
+    overflow-x: hidden;
+  }
+
+  body {
+    @apply bg-white text-gray-900 font-sans antialiased overflow-x-hidden;
+    font-family: 'Montserrat', sans-serif;
+    background-color: #FFFFFF;
+    color: #111827;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display tracking-tight text-gray-900;
+    font-family: 'Montserrat', sans-serif;
+  }
+  
+  code, pre {
+    @apply font-mono;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  
+  /* Form input & textarea styling for Theme 03 */
+  input,
+  textarea {
+    @apply bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 focus-visible:ring-red-500 focus-visible:border-red-500 transition-all duration-200;
+    font-size: 16px;
+  }
+  
+  select {
+    @apply bg-white border-gray-200 text-gray-900;
+    font-size: 16px;
+  }
+
+  input:focus,
+  textarea:focus {
+    @apply shadow-[0_0_10px_rgba(220,38,38,0.2)] border-red-500/80;
+  }
+  
+  button {
+    @apply transition-all duration-300;
+    font-family: 'Montserrat', sans-serif;
+  }
+
+  /* Custom scrollbar styling */
+  ::-webkit-scrollbar {
+    @apply w-1.5;
+  }
+  
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-100 rounded-full;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 rounded-full hover:bg-red-500/50 transition-colors;
+  }
+}
+
+@layer components {
+  /* Theme 03 Signature Components */
+  .theme-card {
+    background: #FFFFFF;
+    border-radius: 12px;
+    padding: 24px 28px;
+    border: 1px solid #F3F4F6;
+    border-bottom: 3px solid #EAB308;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .theme-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+  }
+
+  .btn-theme-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px 40px;
+    background: #DC2626;
+    color: #FFFFFF;
+    font-family: 'Montserrat', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    letter-spacing: 0.5px;
+    transition: background 0.25s ease, transform 0.15s ease, box-shadow 0.25s ease, color 0.25s ease;
+    box-shadow: 0 4px 14px rgba(220, 38, 38, 0.3);
+  }
+
+  .btn-theme-primary:hover {
+    background: #EAB308;
+    color: #111827;
+    box-shadow: 0 4px 18px rgba(234, 179, 8, 0.35);
+    transform: translateY(-1px);
+  }
+
+  .btn-theme-outline {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 22px;
+    border: 2px solid #DC2626;
+    color: #DC2626;
+    font-family: 'Montserrat', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 0.2s ease, color 0.2s ease;
+  }
+
+  .btn-theme-outline:hover {
+    background: #DC2626;
+    color: #FFFFFF;
+  }
+
+  .theme-nav-link {
+    position: relative;
+    color: #111827;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 4px 0;
+    text-decoration: none;
+    transition: color 0.2s ease;
+  }
+
+  .theme-nav-link::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    width: 0;
+    height: 2px;
+    background: #DC2626;
+    transition: width 0.25s ease;
+  }
+
+  .theme-nav-link:hover {
+    color: #DC2626;
+  }
+
+  .theme-nav-link:hover::after {
+    width: 100%;
+  }
+
+  /* Glass card effect (light mode adapted) */
+  .glass-card {
+    @apply backdrop-blur-lg bg-white/80 border border-gray-100 shadow-md;
+  }
+
+  .glass-effect {
+    @apply backdrop-blur-md bg-white/70 shadow-sm border border-gray-200;
+  }
+  
+  /* Glow effect for buttons and interactive elements */
+  .glow-on-hover {
+    @apply transition-all duration-300;
+  }
+  
+  .glow-on-hover:hover {
+    @apply shadow-lg shadow-red-500/20;
+  }
+  
+  /* Animated gradient text (Red to Gold) */
+  .animated-gradient-text {
+    @apply bg-gradient-to-r from-red-600 via-amber-500 to-yellow-500 bg-200% text-transparent bg-clip-text animate-gradient-shift;
+  }
+
+  /* Chat bubble styles */
+  .message-bubble {
+    @apply rounded-xl p-4 max-w-[85%] mb-4 border shadow-sm transition-all duration-300;
+  }
+  
+  .message-bubble.user {
+    @apply bg-red-50 ml-auto border-red-200 text-gray-900 hover:shadow-md hover:border-red-300;
+  }
+  
+  .message-bubble.ai {
+    @apply bg-amber-50/60 border-amber-200/80 text-gray-900 hover:shadow-md hover:border-amber-300;
+  }
+
+  /* Animated blob */
+  .animated-blob {
+    @apply absolute bg-gradient-to-br from-red-500/10 to-amber-500/10 animate-blob filter blur-3xl opacity-40 z-0;
+  }
+
+  /* Hero gradient overlay */
+  .hero-gradient {
+    @apply absolute inset-0 bg-gradient-to-b from-white via-amber-50/40 to-white z-0;
+  }
+
+  /* Animated underline */
+  .animated-underline {
+    @apply relative inline-block;
+  }
+
+  .animated-underline::after {
+    content: '';
+    @apply absolute w-full scale-x-0 h-0.5 bg-red-600 bottom-0 left-0 origin-bottom-right transition-transform duration-300;
+  }
+
+  .animated-underline:hover::after {
+    @apply scale-x-100 origin-bottom-left;
+  }
+
+  /* Underline animation for links in footer */
+  .underline-animation {
+    @apply relative;
+  }
+
+  .underline-animation::after {
+    content: '';
+    @apply absolute w-full scale-x-0 h-0.5 bg-amber-500 bottom-0 left-0 origin-bottom-right transition-transform duration-300;
+  }
+
+  .underline-animation:hover::after {
+    @apply scale-x-100 origin-bottom-left;
+  }
+
+  /* Theme 03 Mic & Voice Glow Effects (Red & Gold) */
+  .apple-glow-user {
+    position: relative;
+    box-shadow: 
+      0 0 20px rgba(220, 38, 38, 0.3),
+      0 0 40px rgba(234, 179, 8, 0.2),
+      0 0 60px rgba(220, 38, 38, 0.1);
+  }
+
+  .apple-glow-user::before {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    background: radial-gradient(circle at center, rgba(220, 38, 38, 0.25) 0%, transparent 70%);
+    border-radius: inherit;
+    z-index: -1;
+    animation: apple-glow-user 2s ease-in-out infinite;
+  }
+
+  .apple-glow-ai {
+    position: relative;
+    box-shadow: 
+      0 0 20px rgba(234, 179, 8, 0.35),
+      0 0 40px rgba(220, 38, 38, 0.2),
+      0 0 60px rgba(234, 179, 8, 0.1);
+  }
+
+  .apple-glow-ai::before {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    background: linear-gradient(45deg, rgba(234, 179, 8, 0.3), rgba(220, 38, 38, 0.2));
+    border-radius: inherit;
+    z-index: -1;
+    animation: apple-glow-ai 2s ease-in-out infinite;
+  }
+
+  .apple-glow-pulse {
+    animation: mic-pulse 2s ease-in-out infinite;
+  }
+
+  .apple-glow-ripple {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .apple-glow-ripple::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(220, 38, 38, 0.35) 0%, transparent 70%);
+    transform: translate(-50%, -50%);
+    animation: apple-ripple 1.5s ease-out;
+  }
+
+  .apple-glow-ripple:active::after {
+    animation: apple-ripple 0.6s ease-out;
+  }
+
+  /* Voice Activity Wave */
+  .voice-activity-wave {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    height: 24px;
+  }
+
+  .voice-activity-wave .wave-bar {
+    width: 3px;
+    background: linear-gradient(to top, #DC2626, #EAB308);
+    border-radius: 2px;
+    animation: voice-wave 1.2s ease-in-out infinite;
+  }
+
+  .voice-activity-wave .wave-bar:nth-child(2) { animation-delay: 0.1s; }
+  .voice-activity-wave .wave-bar:nth-child(3) { animation-delay: 0.2s; }
+  .voice-activity-wave .wave-bar:nth-child(4) { animation-delay: 0.3s; }
+  .voice-activity-wave .wave-bar:nth-child(5) { animation-delay: 0.4s; }
+
+  /* Breathing Animation */
+  .glow-breathing {
+    animation: breathing 3s ease-in-out infinite;
+  }
+
+  /* Interview Panel Container Styling */
+  .immersive-interview-panel {
+    @apply w-full min-h-screen bg-gradient-to-b from-white via-amber-50/20 to-white text-gray-900;
+    @apply border border-gray-100 shadow-sm;
+    background-image: 
+      radial-gradient(circle at 20% 20%, rgba(220, 38, 38, 0.03) 0%, transparent 50%),
+      radial-gradient(circle at 80% 80%, rgba(234, 179, 8, 0.03) 0%, transparent 50%);
+  }
+
+  .ambient-lighting {
+    position: relative;
+  }
+
+  .ambient-lighting::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(45deg, 
+      transparent 40%, 
+      rgba(220, 38, 38, 0.02) 50%, 
+      transparent 60%);
+    border-radius: inherit;
+    animation: ambient-glow 4s ease-in-out infinite;
+  }
+
+  /* Minimal Text Overlay */
+  .minimal-text-overlay {
+    @apply absolute top-8 left-1/2 transform -translate-x-1/2;
+    @apply text-center max-w-4xl mx-auto px-8;
+    @apply transition-all duration-500 ease-out;
+    @apply z-10;
+  }
+
+  .minimal-text-overlay.fade-out {
+    @apply opacity-0 translate-y-4;
+  }
+
+  /* Voice-First Layout */
+  .voice-first-layout {
+    @apply flex flex-col items-center justify-center min-h-screen relative;
+    @apply p-8 space-y-8;
+  }
+
+  /* Turn-Based State Indicators */
+  .user-turn-active {
+    @apply apple-glow-user;
+  }
+
+  .ai-turn-active {
+    @apply apple-glow-ai;
+  }
+
+  .turn-transition {
+    @apply transition-all duration-500 ease-in-out;
+    @apply opacity-50 scale-95;
+  }
+
+  .mic-disabled-state {
+    @apply opacity-40 cursor-not-allowed;
+    @apply grayscale;
+    filter: grayscale(1);
+  }
+
+  .mic-disabled-state:hover {
+    @apply grayscale;
+    filter: grayscale(1);
+  }
+
+  /* Floating Message Containers */
+  .floating-message-user {
+    @apply backdrop-blur-md bg-white border border-red-200 text-gray-900 shadow-md shadow-red-500/5;
+    @apply rounded-2xl p-4 max-w-md;
+    @apply animate-fade-in;
+  }
+
+  .floating-message-ai {
+    @apply backdrop-blur-md bg-white border border-amber-300 text-gray-900 shadow-md shadow-amber-500/10;
+    @apply rounded-2xl p-4 max-w-md;
+    @apply animate-fade-in;
+  }
+
+  /* Off-Screen Coach Feedback */
+  .coach-slide-panel {
+    @apply fixed right-0 top-0 h-full w-96 max-w-[90vw];
+    @apply bg-white/95 backdrop-blur-xl border-l-2 border-yellow-500;
+    @apply shadow-2xl text-gray-900;
+    @apply transform translate-x-full transition-transform duration-300 ease-out;
+    @apply z-50;
+  }
+
+  .coach-slide-panel.open {
+    @apply translate-x-0;
+  }
+
+  .coach-indicator {
+    @apply fixed top-1/2 right-4 transform -translate-y-1/2;
+    @apply w-3 h-3 bg-yellow-500 rounded-full;
+    @apply animate-pulse shadow-lg shadow-yellow-500/50;
+    @apply z-40;
+  }
+
+  /* Transcript Drawer */
+  .transcript-drawer {
+    @apply fixed bottom-0 left-0 right-0 h-3/4 max-h-[80vh];
+    @apply bg-white/95 backdrop-blur-xl border-t-2 border-red-600;
+    @apply shadow-2xl text-gray-900;
+    @apply transform translate-y-full transition-transform duration-300 ease-out;
+    @apply z-50;
+  }
+
+  .transcript-drawer.open {
+    @apply translate-y-0;
+  }
+
+  /* Advanced Visual Effects */
+  .particle-effect {
+    position: absolute;
+    width: 2px;
+    height: 2px;
+    background: radial-gradient(circle, rgba(220, 38, 38, 0.8) 0%, transparent 70%);
+    border-radius: 50%;
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .particle-effect:nth-child(odd) {
+    animation-delay: -2s;
+    background: radial-gradient(circle, rgba(234, 179, 8, 0.8) 0%, transparent 70%);
+  }
+
+  /* Central Mic Button Styles */
+  .central-mic-button {
+    @apply relative w-24 h-24 rounded-full;
+    @apply bg-gradient-to-br from-red-600 to-red-700 text-white;
+    @apply border-2 border-yellow-400;
+    @apply shadow-lg shadow-red-600/30;
+    @apply flex items-center justify-center;
+    @apply transition-all duration-300 ease-out;
+    @apply hover:scale-105 active:scale-95;
+    @apply cursor-pointer;
+  }
+
+  .central-mic-button:hover {
+    @apply border-yellow-300;
+    box-shadow: 
+      0 0 25px rgba(220, 38, 38, 0.4),
+      0 10px 30px rgba(234, 179, 8, 0.25);
+  }
+
+  .central-mic-button.listening {
+    @apply apple-glow-user;
+    @apply animate-mic-pulse;
+  }
+
+  .central-mic-button.processing {
+    @apply animate-breathing;
+    opacity: 0.8;
+  }
+
+  .central-mic-button.disabled {
+    @apply mic-disabled-state;
+  }
+
+  /* Audio Waveform */
+  .audio-waveform {
+    @apply flex items-center justify-center space-x-1;
+    @apply absolute -bottom-8 left-1/2 transform -translate-x-1/2;
+  }
+
+  .audio-waveform .bar {
+    @apply w-1 bg-current rounded-full;
+    @apply animate-voice-wave;
+    height: 4px;
+  }
+
+  .audio-waveform .bar:nth-child(1) { animation-delay: 0.0s; }
+  .audio-waveform .bar:nth-child(2) { animation-delay: 0.1s; }
+  .audio-waveform .bar:nth-child(3) { animation-delay: 0.2s; }
+  .audio-waveform .bar:nth-child(4) { animation-delay: 0.3s; }
+  .audio-waveform .bar:nth-child(5) { animation-delay: 0.4s; }
+}
+
+/* Animation for the recording indicator */
+.recording-indicator {
+  @apply relative inline-flex h-3 w-3;
+}
+
+.recording-indicator::before {
+  content: '';
+  @apply absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75 animate-pulse-ring;
+}
+
+.recording-indicator::after {
+  content: '';
+  @apply relative inline-flex rounded-full h-3 w-3 bg-red-500;
+}
+
+@keyframes waveform-animation {
+  0%, 100% {
+    height: 4px;
+  }
+  50% {
+    height: 16px;
+  }
+}
+
+/* Button ripple effect */
+.btn-ripple {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-ripple::after {
+  content: "";
+  background: rgba(255, 255, 255, 0.2);
+  display: block;
+  position: absolute;
+  border-radius: 50%;
+  width: 100px;
+  height: 100px;
+  margin-top: -50px;
+  margin-left: -50px;
+  top: 50%;
+  left: 50%;
+  opacity: 0;
+  transition: all 0.8s;
+  transform: scale(0);
+}
+
+.btn-ripple:active::after {
+  transform: scale(4);
+  opacity: 0;
+  transition: 0s;
+}
+
+/* Neuomorphic effect */
+.neo-effect {
+  @apply bg-white shadow-[0_2px_8px_rgba(0,0,0,0.05)] border border-gray-200 rounded-xl;
+}
+
+/* Halo glow effect */
+.halo-glow {
+  position: relative;
+}
+
+.halo-glow::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  background: linear-gradient(45deg, #DC2626, #EAB308, #DC2626);
+  border-radius: inherit;
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.halo-glow:hover::before {
+  opacity: 1;
+}
+
+/* Perspective card effect */
+.perspective-card {
+  transform-style: preserve-3d;
+  perspective: 1000px;
+}
+
+.perspective-card:hover > * {
+  transform: translateZ(20px);
+  transition: transform 0.3s ease-out;
+}
+
+/* Animation delay utilities */
+.animation-delay-100 {
+  animation-delay: 0.1s;
+}
+
+.animation-delay-200 {
+  animation-delay: 0.2s;
+}
+
+.animation-delay-300 {
+  animation-delay: 0.3s;
+}
+
+.animation-delay-400 {
+  animation-delay: 0.4s;
+}
+
+.animation-delay-500 {
+  animation-delay: 0.5s;
+}
+
+.animation-delay-1000 {
+  animation-delay: 1s;
+}
+
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+
+.animation-delay-4000 {
+  animation-delay: 4s;
+}
+
+/* Auth page styles */
+.auth-container {
+  @apply min-h-screen flex items-center justify-center bg-gradient-to-b from-white to-[#FEF3C7] px-4;
+}
+
+.auth-form-wrapper {
+  @apply w-full max-w-md space-y-6 bg-white border border-gray-200 border-b-[3px] border-b-[#EAB308] p-8 rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.05)];
+}
+
+.auth-form-wrapper h1 {
+  @apply text-3xl font-extrabold text-center text-[#111827] mb-8;
+}
+
+.form-group {
+  @apply space-y-2;
+}
+
+.form-group label {
+  @apply block text-sm font-semibold text-[#111827];
+}
+
+.form-group input {
+  @apply w-full px-4 py-2.5 bg-[#FAFAFA] border border-[#E5E7EB] rounded-lg text-[#111827] placeholder-[#9CA3AF] focus:outline-none focus:bg-white focus:border-[#DC2626] focus:ring-2 focus:ring-[#DC2626]/20 transition-all duration-200;
+}
+
+.form-group input:disabled {
+  @apply opacity-50 cursor-not-allowed;
+}
+
+.form-group small {
+  @apply text-xs text-gray-400;
+}
+
+.auth-form-wrapper button[type="submit"] {
+  @apply w-full bg-[#DC2626] hover:bg-[#B91C1C] text-white font-bold py-3 px-6 rounded-lg shadow-[0_4px_14px_rgba(220,38,38,0.3)] focus:outline-none focus:ring-2 focus:ring-[#DC2626] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200;
+}
+
+.error-message {
+  @apply bg-red-50 border border-red-200 text-[#DC2626] px-4 py-3 rounded-lg text-sm;
+}
+
+.auth-links {
+  @apply text-center text-sm text-[#6B7280];
+}
+
+.auth-links a {
+  @apply text-[#DC2626] hover:text-[#B91C1C] transition-colors duration-200;
+}
+
+.loading {
+  @apply flex items-center justify-center min-h-screen text-[#111827];
+}

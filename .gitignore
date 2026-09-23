@@ -41,3 +41,36 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# AI tool config
+.claude/
+.deepeval/
+
+# Build artifacts
+frontend/dist/
+frontend/bun.lockb
+
+# Personal planning & docs
+planning/
+CLAUDE.md
+CONTEXT.md
+setup_guide.md
+FRONTEND_DOCUMENTATION.md
+backend/BACKEND_DOCUMENTATION.md
+docs/
+integration/
+scripts/
+tests/PHASE_IV_VALIDATION.md
+frontend/README.md
+
+# Deployment / infra (personal)
+Dockerfile
+.dockerignore
+azure-env-template.txt
+AZURE_DEPLOYMENT_CHECKLIST.md
+vercel.json
+
+# Personal dev scripts
+no_stage.bat
+run_venv.bat
+start.sh
