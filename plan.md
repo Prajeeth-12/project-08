@@ -1,275 +1,312 @@
-# Project 08: V1 Master Execution & Team Allocation Plan (`plan.md`)
-**Author:** Prajeeth (Team Lead & Lead Architect)  
-**System:** Project 08 (AI Mock Interview & Assessment Platform)  
-**Date:** September 16, 2026  
-**Target Milestone:** Version 1.0 (End of Week 1 Release)  
+# Module 2: AI Interview Agent — V1 Team Execution Plan
+**Author:** Prajeeth (Team Lead & Lead Architect)
+**Module:** AI-Powered Mock Interview System
+**Date:** September 23, 2026
+**Target:** V1 Backend — Complete working AI interview product
 
 ---
 
-## 1. Executive Summary & Objective
+## 1. What We're Building
 
-Our team of 10 engineering students is building and deploying **Project 08**, a two-track assessment platform comprising:
-1. **Module 1: Formal Coding Track** — Standalone scheduled examinations with Safe Exam Browser (SEB) lockdown, problem blueprints, Monaco code editor, Judge0 execution sandbox, and automated submission grading.
-2. **Module 2: AI Live Interview Track** — Conversational AI mock interview powered by candidate resume intelligence (RAG), a stateful agent probing loop (**Observe -> Reason -> Decide -> Act**), a live interview cockpit, and turn-by-turn rubric evaluation.
+An AI mock interview system where a user can: register/login, configure an interview (role, JD, resume, style, difficulty, duration), conduct a voice interview with an adaptive AI interviewer, receive per-turn coaching in real time, end the interview and get a final summary with scores, strengths, weaknesses, improvement plan, and curated learning resources.
 
-Our mentor has been added as a GitHub collaborator to review Pull Requests (PRs), assess individual code quality, verify automated tests, and award marks. To eliminate merge conflicts and ensure clear grading evidence for all 10 students, I have partitioned the workload into **vertical feature slices**. Each student owns an isolated frontend component, backend API router, database model, and test suite.
+### Architecture
 
-```mermaid
-flowchart TD
-    subgraph Track1["Module 1: Formal Coding Track (5 Members)"]
-        M1["Member 1: Problem Blueprints & Testcase Bank<br/>Branch: feat/b3-problem-blueprints"]
-        M2["Member 2: Candidate Exam Portal & SEB Lockdown<br/>Branch: feat/b4-exam-portal-seb"]
-        M3["Member 3: Monaco Code Editor & Draft Persistence<br/>Branch: feat/a1-editor-workspace"]
-        M4["Member 4: Judge0 Execution Sandbox Engine<br/>Branch: feat/a2-sandbox-judge0"]
-        M5["Member 5: Verdict Engine & Static Code Analysis<br/>Branch: feat/a5-code-review-ast"]
-    end
+```
+FastAPI Backend (Python 3.11)
+├── Supabase PostgreSQL (auth, persistence, RLS)
+├── Google Gemini via LangChain (AI engine)
+├── Deepgram (real-time STT via WebSocket)
+├── Amazon Polly (TTS with SSML + caching)
+└── Serper API (learning resource search)
+```
 
-    subgraph Track2A["Module 2A: Resume Intelligence & RAG (2 Members)"]
-        M6["Member 6: Resume Document Ingestion & Claim Extraction<br/>Branch: feat/b2-resume-claim-parser"]
-        M7["Member 7: Semantic Chunking & RAG Vector Retrieval<br/>Branch: feat/b1-auth-candidate-hub"]
-    end
+### Agent Loop: Observe → Reason → Decide → Act
 
-    subgraph Track2B["Module 2B: AI Interview Agent (3 Members)"]
-        M_LEAD["Lead Architect (Me): Master Stateful Agent Loop<br/>Branch: develop (Core Orchestration)"]
-        M8["Member 8: Live Interview Cockpit UI & WebSocket Client<br/>Branch: feat/a3-live-interview"]
-        M9["Member 9: Turn Rubric Scoring & Scorecard Analytics<br/>Branch: feat/b5-analytics-rubric-coach"]
-    end
-
-    Track1 --> INTEGRATION["Central Integration Branch (develop)<br/>Lead Architect Merge & Verification"]
-    Track2A --> INTEGRATION
-    Track2B --> INTEGRATION
+```
+Candidate speaks → Deepgram STT → Orchestrator receives text
+  → Interviewer Agent generates adaptive follow-up
+  → Coach Agent evaluates response quality per-turn
+  → Polly TTS → Audio streamed back to candidate
 ```
 
 ---
 
-## 2. 10-Member Master Allocation Matrix
+## 2. 5-Member Team Split
 
-| # | Student Role | Module | Assigned Branch | Frontend Component | Backend API Router | DB Model | Pytest Suite |
-|---|---|---|---|---|---|---|---|
-| **1** | Problem Blueprints | Formal Coding | `feat/b3-problem-blueprints` | `frontend/components/team_b/QuestionBank.tsx` | `backend/api/questions.py` | `backend/models/blueprint.py` | `backend/tests/test_questions.py` |
-| **2** | SEB Exam Portal | Formal Coding | `feat/b4-exam-portal-seb` | `frontend/components/team_b/ExamPortal.tsx` | `backend/api/exams.py` | `backend/models/formal_exam.py` | `backend/tests/test_exams.py` |
-| **3** | Monaco Code Editor | Formal Coding | `feat/a1-editor-workspace` | `frontend/components/team_a/MonacoEditor.tsx` | `backend/api/drafts.py` | `backend/models/draft.py` | `backend/tests/test_drafts.py` |
-| **4** | Judge0 Sandbox | Formal Coding | `feat/a2-sandbox-judge0` | `frontend/components/team_a/TestConsole.tsx` | `backend/api/execution.py` | `backend/models/submission.py` | `backend/tests/test_execution.py` |
-| **5** | Verdict & Review | Formal Coding | `feat/a5-code-review-ast` | `frontend/components/team_a/CodeReviewCard.tsx` | `backend/api/code_review.py` | `backend/models/review.py` | `backend/tests/test_code_review.py` |
-| **6** | Resume Claim Parser | AI Interview (RAG) | `feat/b2-resume-claim-parser` | `frontend/components/team_b/ResumeViewer.tsx` | `backend/api/resumes.py` | `backend/models/resume_claim.py` | `backend/tests/test_resumes.py` |
-| **7** | RAG Vector Engine | AI Interview (RAG) | `feat/b1-auth-candidate-hub` | `frontend/components/team_b/AuthModal.tsx` | `backend/api/auth.py` | `backend/models/user.py` | `backend/tests/test_auth.py` |
-| **8** | Interview Cockpit | AI Interview (Agent) | `feat/a3-live-interview` | `frontend/components/team_a/LiveCockpit.tsx` | `backend/api/sessions.py` | `backend/models/session.py` | `backend/tests/test_sessions.py` |
-| **9** | Rubric Evaluator | AI Interview (Agent) | `feat/b5-analytics-rubric-coach` | `frontend/components/team_b/ScorecardView.tsx` | `backend/api/evaluations.py` | `backend/models/rubric.py` | `backend/tests/test_evaluations.py` |
-| **10**| **Lead Architect (Me)**| Master Orchestration | `develop` (Integration) | `frontend/app/page.tsx` & Root Layout | `backend/main.py` & Agent Core | Master Schemas | Integration Test Suite |
+Each member owns a complete feature layer. Dependencies flow downward.
 
----
-
-## 3. Module 1: Formal Coding Track (5 Members)
-
-### Member 1: Problem Blueprints & Testcase Bank
-* **Branch:** `feat/b3-problem-blueprints`
-* **Objective:** Build the authoring and cataloging engine for coding problems and test suites.
-* **Component Responsibilities:**
-  * **Frontend (`QuestionBank.tsx`):** Problem browser with difficulty badges (Easy, Medium, Hard), tag filters (Array, DP, Graph), search bar, and problem statement preview card with sample I/O.
-  * **Backend API (`questions.py`):**
-    * `GET /api/v1/questions` — List paginated problems with difficulty/tag filtering.
-    * `GET /api/v1/questions/{id}` — Retrieve problem specification, sample test cases, and starter code boilerplate. Excludes hidden test cases for candidate security.
-    * `POST /api/v1/questions` — Admin endpoint to create new blueprints with both visible sample test cases and hidden test cases.
-  * **DB Model (`blueprint.py`):** `ProblemBlueprint` table storing metadata, constraints (time limit, memory limit), starter boilerplate dict, and relational test case arrays.
-  * **Tests (`test_questions.py`):** Verify CRUD endpoints, public vs hidden test case masking, and filter validation.
-
----
-
-### Member 2: Candidate Exam Portal & SEB Lockdown Environment
-* **Branch:** `feat/b4-exam-portal-seb`
-* **Objective:** Secure assessment entry, passcode verification, countdown timing, and lockdown proctoring.
-* **Component Responsibilities:**
-  * **Frontend (`ExamPortal.tsx`):** Full-screen exam dashboard with live countdown clock, proctoring warning banner, candidate profile chip, and violation alert modal.
-  * **Backend API (`exams.py`):**
-    * `POST /api/v1/exams/start` — Validate exam passkey, issue session token, and verify Safe Exam Browser (SEB) configuration headers.
-    * `POST /api/v1/exams/event` — Telemetry ingest logging candidate proctoring events: tab switch, window blur, exit full-screen, or copy-paste attempt.
-    * `GET /api/v1/exams/{id}/status` — Check remaining duration and active status.
-  * **DB Model (`formal_exam.py`):** `FormalExam` and `ExamSession` tables tracking exam windows, allowed IP/SEB keys, and security violation counts.
-  * **Tests (`test_exams.py`):** Validate access passkeys, expiry logic, and violation logging.
-
----
-
-### Member 3: Multi-Language Monaco Code Editor & Draft Persistence
-* **Branch:** `feat/a1-editor-workspace`
-* **Objective:** Deliver a responsive in-browser IDE with boilerplate injection and continuous auto-save.
-* **Component Responsibilities:**
-  * **Frontend (`MonacoEditor.tsx`):** Monaco Editor integration supporting Python (3.11), Java (OpenJDK 17), C++ (GCC 9.2), and JavaScript (Node 18). Includes theme switching (vs-dark / light), font scaling, language dropdown, and a live "Auto-saved 2s ago" status chip.
-  * **Backend API (`drafts.py`):**
-    * `POST /api/v1/drafts/save` — Debounced endpoint receiving code snapshots every 3 seconds.
-    * `GET /api/v1/drafts/latest` — Restore the latest code snapshot on page reload or connection recovery.
-  * **DB Model (`draft.py`):** `CodeDraft` table storing candidate ID, problem ID, language identifier, source code buffer, and timestamp.
-  * **Tests (`test_drafts.py`):** Validate draft upserts, language switching, and snapshot retrieval.
-
----
-
-### Member 4: Judge0 Execution Sandbox & Runner API
-* **Branch:** `feat/a2-sandbox-judge0`
-* **Objective:** Secure, asynchronous code execution against custom inputs using Judge0 CE.
-* **Component Responsibilities:**
-  * **Frontend (`TestConsole.tsx`):** Tabbed execution panel with custom stdin input area, stdout output terminal, stderr display, execution time indicator, and peak memory gauge.
-  * **Backend API (`execution.py`):**
-    * `POST /api/v1/execution/run` — Format submission payload, enforce resource limits (2.0s CPU timeout, 128MB RAM bound), dispatch to Judge0 CE, and return async execution token.
-    * `GET /api/v1/execution/status/{token}` — Poll Judge0 CE status with exponential backoff until completion.
-  * **DB Model (`submission.py`):** `ExecutionJob` tracking token, language ID, status (In Queue, Processing, Completed), runtime, and memory.
-  * **Tests (`test_execution.py`):** Mock Judge0 responses, verify timeout enforcement, and check output sanitization.
-
----
-
-### Member 5: Assessment Verdict Engine & Static Code Analysis
-* **Branch:** `feat/a5-code-review-ast`
-* **Objective:** Automated assessment grading against hidden test suites and AST code analysis.
-* **Component Responsibilities:**
-  * **Frontend (`CodeReviewCard.tsx`):** Post-submission verdict card showing overall score, passed test case ratio (e.g. 10/10 Passed), time/space complexity analysis, and clean code suggestions.
-  * **Backend API (`code_review.py`):**
-    * `POST /api/v1/code-review/evaluate` — Run candidate code against all hidden test cases and compute final verdict: `ACCEPTED`, `WRONG_ANSWER`, `TIME_LIMIT_EXCEEDED`, `COMPILATION_ERROR`.
-    * Python AST parser extracting cyclomatic complexity, recursive depth, and anti-pattern flags.
-  * **DB Model (`review.py`):** `AssessmentSubmission` recording verdict, execution statistics, score percentage, and AST insights.
-  * **Tests (`test_code_review.py`):** Test verdict calculation, partial scoring formulas, and AST AST complexity metrics.
-
----
-
-## 4. Module 2: AI Live Interview Track (5 Members)
-
-### Track 2A: Resume Intelligence & RAG Pipeline (2 Members)
-
-#### Member 6: Resume Document Ingestion & Structured Claim Extraction
-* **Branch:** `feat/b2-resume-claim-parser`
-* **Objective:** Parse uploaded candidate resumes and structure contents into verifiable claims.
-* **Component Responsibilities:**
-  * **Frontend (`ResumeViewer.tsx`):** Resume upload dropzone supporting PDF, side-by-side parsed preview, detected technical skills chips, and verified experience cards.
-  * **Backend API (`resumes.py`):**
-    * `POST /api/v1/resumes/upload` — Multipart PDF parser utilizing `pdfplumber` / `pypdf`.
-    * `GET /api/v1/resumes/{id}/claims` — Extract structured schema: skills list, employment history, quantified project achievements, and flagged unverified claims.
-  * **DB Model (`resume_claim.py`):** `ResumeClaim` table storing candidate resume text, structured JSON claims, and parsed sections.
-  * **Tests (`test_resumes.py`):** Test PDF extraction, invalid file handling, and claim schema conformance.
-
----
-
-#### Member 7: Semantic Chunking, Vector Embeddings & RAG Retrieval API
-* **Branch:** `feat/b1-auth-candidate-hub`
-* **Objective:** Implement the RAG vector search engine enabling the AI interviewer to probe resume claims.
-* **Component Responsibilities:**
-  * **Frontend (`AuthModal.tsx`):** Candidate profile hub displaying active resume indexing status, verified skills, and knowledge readiness badge.
-  * **Backend API (`auth.py`):**
-    * `POST /api/v1/resumes/{id}/index` — Chunk extracted resume text, generate vector embeddings, and store them in vector storage.
-    * `GET /api/v1/resumes/{id}/query?q=...` — Top-K semantic retrieval endpoint used by the AI agent to ground interview questions in candidate experience.
-  * **DB Model (`user.py`):** Candidate profile with vector embedding storage relationship and authentication records.
-  * **Tests (`test_auth.py`):** Test token auth, chunk vectorization, and semantic retrieval accuracy.
-
----
-
-### Track 2B: AI Interview Agent (3 Members)
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant C as Candidate / Cockpit UI (Member 8)
-    participant L as Lead Architect (Agentic Loop Engine)
-    participant R as Resume RAG Engine (Members 6 & 7)
-    participant E as Rubric Evaluator (Member 9)
-
-    C->>L: Send audio/text candidate answer (WebSocket)
-    L->>R: Fetch candidate claim context (Query: "Distributed Systems")
-    R-->>L: Return top-k resume evidence & metrics
-    Note over L: Observe -> Reason -> Decide -> Act
-    L-->>C: Stream probed question or trigger interactive coding challenge
-    L->>E: Dispatch turn dialogue (Prompt + Response)
-    E->>E: Evaluate against STAR criteria & depth rubric
-    E-->>L: Persist turn score & coaching telemetry
+```
+A1 (Foundation)  ──  No dependencies, starts day 1
+A2 (Auth + DB)   ──  No dependencies, starts day 1
+A3 (LLM + AI)    ──  Depends on A1 config only
+A4 (Voice)       ──  Depends on A2 auth
+A5 (API + Glue)  ──  Depends on all above (starts last)
 ```
 
-#### Lead Architect (Me): Master Stateful Agent Loop & Orchestration
-* **Branch:** `develop` (Master Core Integration)
-* **Objective:** Build the conversational agent state machine and multi-turn interview loop.
-* **Core Responsibilities:**
-  * **Stateful Agent Loop:** Implement **Observe -> Reason -> Decide -> Act** cycle.
-  * **WebSocket Session Management (`main.py`):** Bidirectional low-latency audio/text streaming.
-  * **Dynamic Tool Invocation:** Seamlessly invoke coding challenges or system design prompts mid-interview when technical probing warrants it.
-  * **Contract Governance:** Connect upstream RAG context from Track 2A with downstream rubric scoring from Member 9.
+---
+
+### Member A1 — Foundation & Config
+
+**What they build:** App setup, config, utilities, middleware, session management.
+
+**Files (28):**
+```
+backend/main.py                              — FastAPI app, lifespan, CORS, router registration
+backend/config.py                            — App config, env loading, logger setup
+backend/.env.example                         — Environment variable template
+backend/requirements.txt                     — Python dependencies
+backend/__init__.py                          — Package init
+
+backend/middleware/__init__.py
+backend/middleware/session_middleware.py      — Session auto-save middleware
+
+backend/services/__init__.py                 — Service initialization (initialize_services)
+backend/services/rate_limiting.py            — Token bucket rate limiter
+backend/services/session_manager.py          — Thread-safe session registry
+
+backend/utils/__init__.py
+backend/utils/common.py                      — Shared utilities (timestamps, safe_get)
+backend/utils/event_bus.py                   — Event bus for agent communication
+backend/utils/time_manager.py                — Interview time tracking
+backend/utils/file_utils.py                  — File handling utilities
+backend/utils/file_validator.py              — File validation
+backend/utils/llm_chain_processor.py         — LLM chain processing helpers
+backend/utils/llm_utils.py                   — LLM output parsing utilities
+
+backend/schemas/__init__.py
+backend/schemas/session.py                   — Pydantic session models
+
+backend/config/__init__.py
+backend/config/file_processing_config.py     — File processing config
+```
+
+**PRs:**
+| PR | Title | What it does |
+|----|-------|-------------|
+| 1 | `feat(foundation): add FastAPI app setup, config, and env template` | main.py, config.py, .env.example, requirements.txt |
+| 2 | `feat(foundation): add utilities, event bus, and session schemas` | All utils/ files, schemas/ |
+| 3 | `feat(foundation): add middleware, rate limiter, and session registry` | middleware/, rate_limiting.py, session_manager.py |
+| 4 | `test(foundation): add utility and config tests` | tests/utils/, tests/config/ |
+
+**Tests:** `pytest tests/utils/ tests/config/ -v`
+
+**Dependencies:** None. Starts day 1.
 
 ---
 
-#### Member 8: Live Interview Cockpit UI & WebSocket Client
-* **Branch:** `feat/a3-live-interview`
-* **Objective:** Candidate-facing real-time interview cockpit with audio stream controls.
-* **Component Responsibilities:**
-  * **Frontend (`LiveCockpit.tsx`):** Real-time room layout featuring candidate webcam feed, AI waveform audio visualizer, real-time message transcript feed, speaking status indicators, and modal prompt cards.
-  * **Backend API (`sessions.py`):**
-    * `WS /api/v1/sessions/ws/{session_id}` — WebSocket client connection handler with reconnection resilience.
-    * `POST /api/v1/sessions/start` & `POST /api/v1/sessions/end` — Session lifecycle control.
-  * **DB Model (`session.py`):** `InterviewSession` table storing conversation log, active phase (Behavioral, Deep-Dive, Coding), and duration.
-  * **Tests (`test_sessions.py`):** Test WebSocket handshake, ping/pong health, and session lifecycle transitions.
+### Member A2 — Auth & Database
+
+**What they build:** User authentication, Supabase database layer, schema, migrations, file upload.
+
+**Files (8):**
+```
+backend/database/__init__.py
+backend/database/db_manager.py               — Supabase client, CRUD operations
+backend/database/mock_db_manager.py          — Mock DB for testing
+backend/database/schema.sql                  — Full database schema + RLS policies
+backend/database/migrations/001_update_to_time_based_interviews.sql
+
+backend/api/__init__.py
+backend/api/auth_api.py                      — Register, login, JWT, refresh, get_current_user
+backend/api/file_processing_api.py           — Resume file upload (PDF/DOCX/TXT to text)
+```
+
+**PRs:**
+| PR | Title | What it does |
+|----|-------|-------------|
+| 1 | `feat(db): add Supabase database manager, schema, and migrations` | database/ folder |
+| 2 | `feat(auth): add user registration, login, JWT, and refresh endpoints` | auth_api.py |
+| 3 | `feat(upload): add resume file upload endpoint (PDF/DOCX/TXT)` | file_processing_api.py |
+| 4 | `test(auth): add auth and database tests` | Tests for auth + DB |
+
+**Tests:** `pytest tests/ -k "auth or db" -v`
+
+**Dependencies:** None. Starts day 1.
 
 ---
 
-#### Member 9: Turn-by-Turn Rubric Scoring & Performance Scorecard
-* **Branch:** `feat/b5-analytics-rubric-coach`
-* **Objective:** Quantitative candidate scoring and executive performance scorecard generation.
-* **Component Responsibilities:**
-  * **Frontend (`ScorecardView.tsx`):** Executive post-interview evaluation report with radar chart (Communication, Technical Depth, Problem Solving, System Design), turn breakdown, and actionable coaching tips.
-  * **Backend API (`evaluations.py`):**
-    * `POST /api/v1/evaluations/turn` — Evaluates candidate answer per turn against the STAR framework (Situation, Task, Action, Result) and technical depth rubric.
-    * `GET /api/v1/evaluations/{session_id}/summary` — Returns comprehensive multi-category scorecard.
-  * **DB Model (`rubric.py`):** `InterviewRubric` table tracking dimension scores, turn feedback, and final grade.
-  * **Tests (`test_evaluations.py`):** Validate scoring formulas, rubric constraint bounds, and summary aggregation.
+### Member A3 — AI Interview Engine (LLM + Agents)
+
+**What they build:** Core AI — LLM service, interviewer agent, coach agent, orchestrator, prompt templates, search integration.
+
+**Files (29):**
+```
+backend/services/llm_service.py              — Google Gemini via LangChain
+
+backend/agents/__init__.py
+backend/agents/base.py                       — BaseAgent abstract class + AgentContext
+backend/agents/config_models.py              — SessionConfig, InterviewStyle, difficulty
+backend/agents/constants.py                  — Shared constants
+backend/agents/interview_state.py            — InterviewState, InterviewPhase (4 phases)
+backend/agents/interviewer.py                — InterviewerAgent (question gen, follow-ups)
+backend/agents/agentic_coach.py              — AgenticCoachAgent (per-turn eval, resources)
+backend/agents/orchestrator.py               — AgentSessionManager (lifecycle, routing)
+
+backend/agents/templates/__init__.py
+backend/agents/templates/interviewer_templates.py
+backend/agents/templates/coach_templates.py
+
+backend/agents/tools/__init__.py
+backend/agents/tools/search_tool.py          — LearningResourceSearchTool
+
+backend/services/search_service.py           — Serper web search
+backend/services/search_helpers.py           — Resource classification + relevance scoring
+backend/services/search_config.py            — Search API config
+```
+
+**PRs:**
+| PR | Title | What it does |
+|----|-------|-------------|
+| 1 | `feat(llm): add LLM service, base agent, config models, and constants` | llm_service.py, base.py, config_models.py, constants.py |
+| 2 | `feat(agents): add interviewer agent with prompt templates` | interviewer.py, interviewer_templates.py |
+| 3 | `feat(agents): add coach agent with search tool and templates` | agentic_coach.py, coach_templates.py, search_* |
+| 4 | `feat(agents): add orchestrator and agent integration tests` | orchestrator.py + tests |
+
+**Tests:** `pytest tests/agents/ tests/services/ -v`
+
+**Dependencies:** Uses A1's config.py and utils. Can mock LLM for testing.
 
 ---
 
-## 5. Daily Git Workflow & PR Guidelines for Teammates
+### Member A4 — Voice Pipeline (STT + TTS + WebSocket)
 
-To ensure our mentor has clear, isolated pull requests to review:
+**What they build:** Real-time speech — Deepgram STT, Amazon Polly TTS, WebSocket transport.
 
-### Step 1: Clone & Checkout Assigned Branch
+**Files (13):**
+```
+backend/api/speech/__init__.py
+backend/api/speech/stt_service.py            — Deepgram real-time STT
+backend/api/speech/tts_service.py            — Amazon Polly TTS (SSML + caching)
+backend/api/speech/connection_manager.py     — WebSocket connection lifecycle
+backend/api/speech/deepgram_handlers.py      — Deepgram event handlers
+backend/api/speech/websocket_processor.py    — WebSocket message processing
+
+backend/api/speech_api.py                    — Speech API router (start, stop, status)
+backend/api/speech_api_original.py           — Original speech API (reference)
+```
+
+**PRs:**
+| PR | Title | What it does |
+|----|-------|-------------|
+| 1 | `feat(voice): add STT service with Deepgram real-time transcription` | stt_service.py, deepgram_handlers.py |
+| 2 | `feat(voice): add TTS service with Amazon Polly and SSML caching` | tts_service.py |
+| 3 | `feat(voice): add WebSocket transport and speech API router` | connection_manager.py, websocket_processor.py, speech_api.py |
+| 4 | `test(voice): add speech API and WebSocket tests` | Tests |
+
+**Tests:** `pytest tests/api/ tests/test_deepgram.py tests/test_websocket_endpoint.py -v`
+
+**Dependencies:** Uses A2's auth (get_current_user_optional). Starts week 2.
+
+---
+
+### Member A5 — Interview API & Integration
+
+**What they build:** Interview API endpoints that wire everything together. The integration hub.
+
+**Files (4, but heavy):**
+```
+backend/api/agent_api.py                     — All interview endpoints (15+):
+                                             —   POST /sessions/create
+                                             —   POST /sessions/{id}/message
+                                             —   POST /sessions/{id}/end
+                                             —   GET  /sessions/{id}/feedback
+                                             —   GET  /sessions/{id}/final-summary
+                                             —   GET  /sessions/{id}/conversation
+                                             —   GET  /sessions/{id}/coach-feedback
+                                             —   GET  /sessions/{id}/status
+                                             —   POST /sessions/{id}/update-config
+                                             —   GET  /sessions (list)
+                                             —   DELETE /sessions/{id}
+                                             —   + more
+
+backend/BACKEND_DOCUMENTATION.md             — API documentation
+```
+
+**PRs:**
+| PR | Title | What it does |
+|----|-------|-------------|
+| 1 | `feat(api): add session create, message, and status endpoints` | Core interview flow |
+| 2 | `feat(api): add feedback, coaching, and resource endpoints` | Per-turn feedback, coach, resources |
+| 3 | `feat(api): add session management endpoints` | List, delete, config update, history |
+| 4 | `feat(api): wire all routers in main.py and add integration tests` | Final wiring + integration |
+
+**Tests:** `pytest tests/ -v` (runs everything — integration)
+
+**Dependencies:** Depends on ALL above. Starts last.
+
+---
+
+## 3. PR Timeline
+
+```
+Week 1:  A1-PR1, A1-PR2, A2-PR1, A3-PR1
+Week 2:  A1-PR3, A2-PR2, A3-PR2, A4-PR1
+Week 3:  A1-PR4, A2-PR3, A3-PR3, A4-PR2
+Week 4:  A2-PR4, A3-PR4, A4-PR3, A5-PR1
+Week 5:  A4-PR4, A5-PR2, A5-PR3, A5-PR4
+```
+
+A1, A2, A3 work in parallel from day 1.
+A4 starts week 2 (needs auth).
+A5 starts week 4 (needs agents + voice ready).
+
+---
+
+## 4. Branching & Git Workflow
+
+```
+main
+ └── develop
+      └── team-a/integration          ← all PRs target here
+           ├── feat/a1-foundation
+           ├── feat/a2-auth-database
+           ├── feat/a3-ai-engine
+           ├── feat/a4-voice-pipeline
+           └── feat/a5-interview-api
+```
+
+### For teammates:
+
 ```bash
-git clone https://github.com/<org>/project-08.git
+# Clone and checkout your branch
+git clone https://github.com/Prajeeth-12/project-08.git
 cd project-08
-git checkout feat/<your-assigned-branch>
+git checkout feat/a1-foundation   # (or a2, a3, a4, a5)
+
+# Work on your assigned files only
+# Stage ONLY your files (never git add . or git add -A)
+git add backend/utils/common.py backend/utils/event_bus.py
+git commit -m "feat(foundation): add shared utilities and event bus"
+git push origin feat/a1-foundation
+
+# Open PR targeting team-a/integration
 ```
 
-### Step 2: Local Verification Before Any Commit
-```bash
-# Run backend pytest suite for your module
-pytest backend/tests/test_<your_module>.py -v
-
-# Verify frontend builds cleanly
-cd frontend
-npm run build
-```
-
-### Step 3: Stage ONLY Assigned Files
-```bash
-# Example for Member 1:
-git add frontend/components/team_b/QuestionBank.tsx
-git add backend/api/questions.py
-git add backend/models/blueprint.py
-git add backend/tests/test_questions.py
-
-# ⚠️ NEVER RUN git add . or git add -A
-git commit -m "feat(questions): implement blueprint CRUD and hidden test cases"
-git push origin feat/<your-assigned-branch>
-```
-
-### Step 4: Open Pull Request
-* **Target Branch:** `team-a/integration` (for `feat/a*`) or `team-b/integration` (for `feat/b*`).
-* **PR Content Checklist:**
-  1. Brief summary of the feature implemented.
-  2. Terminal output showing passing `pytest` results.
-  3. Screenshot of the frontend component rendered.
-* **Review & Merge:** The mentor reviews and assigns marks; I perform the architectural code review and merge into `develop`.
+### PR checklist:
+1. Summary of what the PR adds
+2. Terminal output showing passing pytest results
+3. Only your assigned files — never touch other members' files
 
 ---
 
-## 6. Week 1 Milestone Execution Timeline
+## 5. Local Setup
 
-```mermaid
-flowchart LR
-    D1["Day 1-2: Branch Checkout & Scaffold Local Files"] --> D2["Day 3: Core API Endpoints & Pytest Verification"]
-    D2 --> D3["Day 4: Frontend Component & State Binding"]
-    D3 --> D4["Day 5: PR Submission for Mentor Review"]
-    D4 --> D5["Day 6-7: Lead Integration into develop & V1 Release"]
+```bash
+# Python environment
+cd backend
+python -m venv venv
+source venv/bin/activate   # or venv\Scripts\activate on Windows
+pip install -r requirements.txt
+
+# Environment variables
+cp .env.example .env
+# Fill in: GOOGLE_API_KEY, SUPABASE_URL, SUPABASE_KEY, DEEPGRAM_API_KEY, AWS keys
+
+# Run your tests
+pytest tests/utils/ -v           # A1
+pytest tests/ -k "auth" -v       # A2
+pytest tests/agents/ -v          # A3
+pytest tests/api/ -v             # A4
+pytest tests/ -v                 # A5 (everything)
 ```
-
-* **Days 1–2:** All teammates pull their designated branches, set up local virtual environments, and verify base models and schemas.
-* **Days 3–4:** Implement business logic, API routers, and test cases; frontend components connected to backend routes.
-* **Day 5:** All 9 teammates open their PRs with verification evidence for mentor grading.
-* **Days 6–7:** I conduct central integration into `develop`, run end-to-end integration tests, and ship the unified V1 platform.
