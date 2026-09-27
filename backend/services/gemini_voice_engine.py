@@ -104,11 +104,6 @@ class GeminiVoiceSession:
                 ),
                 input_audio_transcription=types.AudioTranscriptionConfig(),
                 output_audio_transcription=types.AudioTranscriptionConfig(),
-                realtime_input_config=types.RealtimeInputConfig(
-                    voice_activity_detection=types.VoiceActivityDetection(
-                        disabled=False,
-                    )
-                ),
             )
 
             self._ctx_manager = self._client.aio.live.connect(
@@ -290,9 +285,6 @@ class GeminiVoiceSession:
                 ),
                 input_audio_transcription=types.AudioTranscriptionConfig(),
                 output_audio_transcription=types.AudioTranscriptionConfig(),
-                realtime_input_config=types.RealtimeInputConfig(
-                    voice_activity_detection=types.VoiceActivityDetection(disabled=False)
-                ),
             )
             self._ctx_manager = self._client.aio.live.connect(model=self.model, config=config)
             self._live_session = await self._ctx_manager.__aenter__()
