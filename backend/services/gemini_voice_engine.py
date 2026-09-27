@@ -104,6 +104,11 @@ class GeminiVoiceSession:
                 ),
                 input_audio_transcription=types.AudioTranscriptionConfig(),
                 output_audio_transcription=types.AudioTranscriptionConfig(),
+                realtime_input_config=types.RealtimeInputConfig(
+                    voice_activity_detection=types.VoiceActivityDetection(
+                        disabled=False,
+                    )
+                ),
             )
 
             self._ctx_manager = self._client.aio.live.connect(
@@ -209,8 +214,13 @@ class GeminiVoiceSession:
         except Exception as e:
             if not self.is_closing:
                 logger.error(f"Gemini Live receive error: {e}")
-                if self.on_error:
-                    await self.on_error(f"Gemini Live stream error: {e}")
+                # Auto-reconnect on keepalive timeout or connection drop
+                if "keepalive" in str(e).lower() or "ping" in str(e).lower() or "1011" in str(e):
+                    logger.info("🔄 Gemini Live connection dropped — attempting reconnect...")
+                    await self._reconnect()
+                else:
+                    if self.on_error:
+                        await self.on_error(f"Gemini Live stream error: {e}")
 
     async def send_audio_chunk(self, base64_audio: str):
         """Send a PCM audio chunk to Gemini Live."""
@@ -218,6 +228,9 @@ class GeminiVoiceSession:
             return
         try:
             raw_bytes = base64.b64decode(base64_audio)
+            self._audio_frames_sent = getattr(self, '_audio_frames_sent', 0) + 1
+            if self._audio_frames_sent % 300 == 1:
+                logger.info(f"🎤 Sending user audio to Gemini Live (frame #{self._audio_frames_sent}, {len(raw_bytes)} bytes)")
             await self._live_session.send_realtime_input(
                 audio=types.Blob(data=raw_bytes, mime_type="audio/pcm;rate=16000")
             )
@@ -242,6 +255,56 @@ class GeminiVoiceSession:
             logger.info(f"Sent text turn to Gemini Live ({len(text)} chars)")
         except Exception as e:
             logger.error(f"Error sending text to Gemini Live: {e}")
+
+    async def _reconnect(self):
+        """Reconnect Gemini Live session after a connection drop."""
+        if self.is_closing:
+            return
+        try:
+            # Close old session cleanly
+            if self._live_session:
+                try:
+                    if hasattr(self, '_ctx_manager') and self._ctx_manager:
+                        await self._ctx_manager.__aexit__(None, None, None)
+                except Exception:
+                    pass
+            self._live_session = None
+            self._ctx_manager = None
+            self.is_connected = False
+            self._audio_frames_sent = 0
+
+            # Brief pause before reconnect
+            await asyncio.sleep(1.0)
+
+            config = types.LiveConnectConfig(
+                response_modalities=["AUDIO"],
+                system_instruction=types.Content(
+                    parts=[types.Part(text=self.system_prompt)]
+                ) if self.system_prompt else None,
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                            voice_name=self.voice_name
+                        )
+                    )
+                ),
+                input_audio_transcription=types.AudioTranscriptionConfig(),
+                output_audio_transcription=types.AudioTranscriptionConfig(),
+                realtime_input_config=types.RealtimeInputConfig(
+                    voice_activity_detection=types.VoiceActivityDetection(disabled=False)
+                ),
+            )
+            self._ctx_manager = self._client.aio.live.connect(model=self.model, config=config)
+            self._live_session = await self._ctx_manager.__aenter__()
+            self.is_connected = True
+            self._receive_task = asyncio.create_task(self._receive_loop())
+            logger.info(f"✅ Gemini Live reconnected: session={self.session_id}")
+            if self.on_renewed:
+                await self.on_renewed()
+        except Exception as e:
+            logger.exception(f"❌ Gemini Live reconnect failed: {e}")
+            if self.on_error:
+                await self.on_error(f"Voice reconnection failed: {e}")
 
     async def renew_connection(self):
         """Gemini Live manages its own connection; no-op."""
