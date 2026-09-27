@@ -95,6 +95,9 @@ export class StreamingSpeechRecognition {
   }
 
   setAiSpeaking(speaking: boolean): void {
+    if (speaking && !this.isAiSpeaking) {
+      this.aiSpeakingStartTime = Date.now();
+    }
     this.isAiSpeaking = speaking;
     if (!speaking) {
       this.lastAiSpeechEndTime = Date.now();
@@ -253,7 +256,9 @@ export class StreamingSpeechRecognition {
   }
 
   private consecutiveLoudFrames: number = 0;
-  private readonly BARGE_IN_RMS_THRESHOLD: number = 0.035;
+  private readonly BARGE_IN_RMS_THRESHOLD: number = 0.06;
+  private readonly BARGE_IN_CONSECUTIVE_FRAMES: number = 3;
+  private aiSpeakingStartTime: number = 0;
 
   private resampleTo16kHz(input: Float32Array, sampleRate: number): Int16Array {
     if (sampleRate === 16000) {
@@ -320,13 +325,19 @@ export class StreamingSpeechRecognition {
 
         // When AI is actively outputting sound or in speaker tail cooldown:
         if (this.isAiSpeaking || inCooldown) {
-          // If candidate speaks during AI speech, trigger barge-in interruption immediately
-          if (rms >= 0.02) {
-            console.log('🗣️ Voice barge-in detected (RMS:', rms.toFixed(3), ') -> interrupting AI');
-            this.isAiSpeaking = false;
-            this.consecutiveLoudFrames = 0;
-            this.options.onBargeIn?.();
+          const aiSpeakingMs = now - this.aiSpeakingStartTime;
+          // Guard: ignore first 800ms of AI speech (echo / speaker bleed)
+          // and require sustained loud speech (3 consecutive frames) to trigger barge-in
+          if (rms >= this.BARGE_IN_RMS_THRESHOLD && aiSpeakingMs > 800) {
+            this.consecutiveLoudFrames++;
+            if (this.consecutiveLoudFrames >= this.BARGE_IN_CONSECUTIVE_FRAMES) {
+              console.log('🗣️ Barge-in detected (RMS:', rms.toFixed(3), ', frames:', this.consecutiveLoudFrames, ') -> interrupting AI');
+              this.isAiSpeaking = false;
+              this.consecutiveLoudFrames = 0;
+              this.options.onBargeIn?.();
+            }
           } else {
+            this.consecutiveLoudFrames = 0;
             return;
           }
         } else {

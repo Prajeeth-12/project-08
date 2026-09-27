@@ -232,10 +232,17 @@ export function useVoiceFirstInterview(
 
         onAudioChunk: (base64Audio) => {
           // Drop stale chunks after barge-in until Gemini acknowledges interruption
-          if (bargedInRef.current) return;
-
+          if (bargedInRef.current) {
+            console.log('[Voice] onAudioChunk called but bargedIn=true, dropping');
+            return;
+          }
+          if (!audioPlayerRef.current) {
+            console.error('[Voice] onAudioChunk called but audioPlayerRef is null!');
+            return;
+          }
+          console.log('[Voice] onAudioChunk — sending to player, b64 len:', base64Audio.length);
           recognitionRef.current?.setAiSpeaking(true);
-          audioPlayerRef.current?.playChunk(base64Audio);
+          audioPlayerRef.current.playChunk(base64Audio);
 
           // Only on the first chunk of a new AI turn: clear transcript + set state
           if (!aiTurnActiveRef.current) {

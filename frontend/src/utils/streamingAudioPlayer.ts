@@ -9,9 +9,9 @@ export class StreamingAudioPlayer {
   private isPlaying: boolean = false;
   private activeSources: AudioBufferSourceNode[] = [];
   private onPlaybackStateChange?: (isPlaying: boolean) => void;
-  // Debounce timer so brief gaps between chunks don't fire "stopped" prematurely
   private endDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly END_DEBOUNCE_MS = 300;
+  private chunkCount = 0;
 
   constructor(onPlaybackStateChange?: (isPlaying: boolean) => void) {
     this.onPlaybackStateChange = onPlaybackStateChange;
@@ -23,62 +23,73 @@ export class StreamingAudioPlayer {
         const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
         this.audioContext = new AudioCtx();
         this.nextPlayTime = this.audioContext.currentTime;
+        console.log('[AudioPlayer] Created AudioContext, state:', this.audioContext.state);
       }
       if (this.audioContext.state === 'suspended') {
         await this.audioContext.resume();
-        console.log('🔊 AudioContext resumed (state:', this.audioContext.state, ')');
+        console.log('[AudioPlayer] AudioContext resumed, state:', this.audioContext.state);
       }
+      console.log('[AudioPlayer] unlock() done, state:', this.audioContext.state, 'currentTime:', this.audioContext.currentTime);
     } catch (e) {
-      console.warn('Could not resume AudioContext:', e);
+      console.error('[AudioPlayer] unlock failed:', e);
     }
-  }
-
-  private async ensureRunning(): Promise<boolean> {
-    if (!this.audioContext || this.audioContext.state === 'closed') {
-      try {
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        this.audioContext = new AudioCtx();
-        this.nextPlayTime = this.audioContext.currentTime;
-      } catch (e) {
-        console.error('Failed to create AudioContext:', e);
-        return false;
-      }
-    }
-    if (this.audioContext.state === 'suspended') {
-      try {
-        await this.audioContext.resume();
-      } catch (e) {
-        console.warn('AudioContext resume failed:', e);
-        return false;
-      }
-    }
-    return this.audioContext.state === 'running';
   }
 
   async playChunk(base64Data: string) {
-    // Cancel any pending "playback ended" notification — more chunks are arriving
+    this.chunkCount++;
+    const chunkNum = this.chunkCount;
+
+    // Cancel pending end notification — more chunks arriving
     if (this.endDebounceTimer !== null) {
       clearTimeout(this.endDebounceTimer);
       this.endDebounceTimer = null;
     }
 
     try {
-      const ready = await this.ensureRunning();
-      if (!ready || !this.audioContext) return;
+      // Ensure AudioContext exists and is running
+      if (!this.audioContext || this.audioContext.state === 'closed') {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        this.audioContext = new AudioCtx();
+        this.nextPlayTime = this.audioContext.currentTime;
+        console.log('[AudioPlayer] Re-created AudioContext in playChunk');
+      }
 
-      // Decode base64 → Int16 PCM → Float32
+      if (this.audioContext.state === 'suspended') {
+        console.log('[AudioPlayer] AudioContext suspended on chunk', chunkNum, '— resuming...');
+        await this.audioContext.resume();
+        console.log('[AudioPlayer] Resumed, new state:', this.audioContext.state);
+      }
+
+      if (this.audioContext.state !== 'running') {
+        console.error('[AudioPlayer] AudioContext not running (state:', this.audioContext.state, ') — dropping chunk', chunkNum);
+        return;
+      }
+
+      if (chunkNum <= 3) {
+        console.log('[AudioPlayer] Playing chunk', chunkNum, '| base64 length:', base64Data.length,
+          '| ctx state:', this.audioContext.state, '| currentTime:', this.audioContext.currentTime.toFixed(3),
+          '| nextPlayTime:', this.nextPlayTime.toFixed(3));
+      }
+
+      // Decode base64 → raw bytes → Int16 PCM → Float32
       const binaryString = atob(base64Data);
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
       const pcm16 = new Int16Array(bytes.buffer);
+
+      if (pcm16.length === 0) {
+        console.warn('[AudioPlayer] Empty PCM chunk', chunkNum, '— skipping');
+        return;
+      }
+
       const float32 = new Float32Array(pcm16.length);
       for (let i = 0; i < pcm16.length; i++) {
         float32[i] = pcm16[i] / 32768.0;
       }
 
-      // Gemini Live outputs 24kHz mono PCM
+      // Gemini Live outputs 24kHz mono 16-bit PCM
       const audioBuffer = this.audioContext.createBuffer(1, float32.length, 24000);
       audioBuffer.getChannelData(0).set(float32);
 
@@ -91,6 +102,11 @@ export class StreamingAudioPlayer {
       source.start(startTime);
       this.nextPlayTime = startTime + audioBuffer.duration;
 
+      if (chunkNum <= 3) {
+        console.log('[AudioPlayer] Scheduled chunk', chunkNum, 'at', startTime.toFixed(3),
+          'duration:', audioBuffer.duration.toFixed(3), 's | PCM samples:', pcm16.length);
+      }
+
       this.activeSources.push(source);
 
       if (!this.isPlaying) {
@@ -102,11 +118,12 @@ export class StreamingAudioPlayer {
         const idx = this.activeSources.indexOf(source);
         if (idx !== -1) this.activeSources.splice(idx, 1);
 
-        // Only signal "stopped" after debounce — avoids false stops between chunks
         if (this.activeSources.length === 0) {
           this.endDebounceTimer = setTimeout(() => {
             if (this.activeSources.length === 0) {
               this.isPlaying = false;
+              this.chunkCount = 0;
+              console.log('[AudioPlayer] Playback complete');
               this.onPlaybackStateChange?.(false);
             }
             this.endDebounceTimer = null;
@@ -114,7 +131,7 @@ export class StreamingAudioPlayer {
         }
       };
     } catch (e) {
-      console.error('Error playing audio chunk:', e);
+      console.error('[AudioPlayer] Error playing chunk', chunkNum, ':', e);
     }
   }
 
@@ -132,6 +149,7 @@ export class StreamingAudioPlayer {
     }
     if (this.isPlaying) {
       this.isPlaying = false;
+      this.chunkCount = 0;
       this.onPlaybackStateChange?.(false);
     }
   }
