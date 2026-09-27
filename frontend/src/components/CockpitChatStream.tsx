@@ -9,6 +9,7 @@ interface CockpitChatStreamProps {
   isProcessing: boolean;
   accumulatedTranscript?: string;
   streamingAiText?: string;
+  isUserSpeaking?: boolean;
 }
 
 const SparkleIcon: React.FC = () => (
@@ -26,6 +27,7 @@ const CockpitChatStream: React.FC<CockpitChatStreamProps> = ({
   isProcessing,
   accumulatedTranscript,
   streamingAiText,
+  isUserSpeaking,
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -91,35 +93,34 @@ const CockpitChatStream: React.FC<CockpitChatStreamProps> = ({
         </div>
       )}
 
-      {/* User live transcript while speaking */}
-      {isListening && accumulatedTranscript && (
+      {/* User speaking indicator (VAD-detected) */}
+      {isUserSpeaking && (
         <div className="flex justify-end">
-          <div className="max-w-[80%] px-4 py-2.5 rounded-2xl rounded-br-md bg-[#FEF3C7]/50 border border-[#EAB308]/20 text-[14px] text-[#92400E] leading-relaxed italic">
-            {accumulatedTranscript}...
+          <div className="flex items-center gap-2 px-4 py-2 rounded-2xl rounded-br-md bg-[#DC2626]/8 border border-[#DC2626]/20">
+            <div className="flex gap-[3px] items-end h-4">
+              {[1, 1.5, 2, 1.5, 1].map((h, i) => (
+                <span key={i} className="w-1 bg-[#DC2626] rounded-full animate-bounce" style={{ height: `${h * 6}px`, animationDelay: `${i * 0.1}s` }} />
+              ))}
+            </div>
+            <span className="text-xs font-medium text-[#DC2626]">Speaking...</span>
           </div>
         </div>
       )}
 
-      {/* Status */}
-      {isProcessing && !streamingAiText && (
-        <div className="flex items-center gap-2 text-[#6B7280]">
-          <Loader2 size={14} className="animate-spin" />
-          <span className="text-xs font-medium">AI is thinking...</span>
-        </div>
-      )}
-
-      {turnState === 'ai' && !streamingAiText && !isProcessing && (
+      {/* AI Speaking indicator */}
+      {turnState === 'ai' && !streamingAiText && (
         <div className="flex items-center gap-2">
           <div className="flex gap-1">
             {[0, 0.15, 0.3].map((d, i) => (
               <span key={i} className="w-1.5 h-1.5 rounded-full bg-[#DC2626] animate-bounce" style={{ animationDelay: `${d}s` }} />
             ))}
           </div>
-          <span className="text-xs font-medium text-[#DC2626]">Speaking</span>
+          <span className="text-xs font-medium text-[#DC2626]">AI Speaking</span>
         </div>
       )}
 
-      {isListening && !accumulatedTranscript && turnState === 'user' && (
+      {/* Listening indicator */}
+      {isListening && !isUserSpeaking && turnState !== 'ai' && (
         <div className="flex items-center gap-2 justify-end">
           <span className="text-xs font-medium text-[#EAB308]">Listening</span>
           <span className="w-2 h-2 rounded-full bg-[#EAB308] animate-pulse" />

@@ -237,10 +237,9 @@ class GeminiVoiceSession:
         if not self.is_connected or self.is_closing or not self._live_session:
             return
         try:
-            await self._live_session.send_client_content(
-                turns=types.Content(role="user", parts=[types.Part(text="")]),
-                turn_complete=True
-            )
+            # send_client_content with turn_complete=True and NO turns content
+            # tells Gemini "process the audio you received and respond"
+            await self._live_session.send_client_content(turn_complete=True)
             logger.info("🗣️ Sent end-of-turn signal to Gemini Live")
         except Exception as e:
             logger.error(f"Error sending end-of-turn to Gemini Live: {e}")

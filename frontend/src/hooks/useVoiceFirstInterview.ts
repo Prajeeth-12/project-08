@@ -35,6 +35,7 @@ export function useVoiceFirstInterview(
   const [voiceActivityLevel, setVoiceActivityLevel] = useState(0);
   const [accumulatedTranscript, setAccumulatedTranscript] = useState('');
   const [streamingAiText, setStreamingAiText] = useState('');
+  const [isUserSpeaking, setIsUserSpeaking] = useState(false);
 
   const recognitionRef = useRef<StreamingSpeechRecognition | null>(null);
   const audioPlayerRef = useRef<StreamingAudioPlayer | null>(null);
@@ -145,6 +146,7 @@ export function useVoiceFirstInterview(
           toast({ title: 'Voice Notice', description: error, variant: 'default' });
         },
 
+        onUserSpeaking: (speaking) => setIsUserSpeaking(speaking),
         onBargeIn: undefined,
         onSpeechStarted: undefined,
         onUtteranceEnd: undefined,
@@ -172,6 +174,7 @@ export function useVoiceFirstInterview(
     setAudioPlaying(false);
     setStreamingAiText('');
     setAccumulatedTranscript('');
+    setIsUserSpeaking(false);
   }, []);
 
   useEffect(() => {
@@ -204,6 +207,7 @@ export function useVoiceFirstInterview(
     voiceActivityLevel,
     accumulatedTranscript,
     streamingAiText,
+    isUserSpeaking,
 
     isListening,
     isProcessing,

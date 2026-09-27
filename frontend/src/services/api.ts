@@ -69,6 +69,7 @@ export interface StreamingSpeechOptions {
   onBargeIn?: () => void;
   onTurnEnded?: (stopReason: string) => void;
   onInterviewEnding?: (state?: any) => void;
+  onUserSpeaking?: (isSpeaking: boolean) => void;
 }
 
 export class StreamingSpeechRecognition {
@@ -337,13 +338,20 @@ export class StreamingSpeechRecognition {
           console.log(`🎤 Audio to AI (RMS: ${rms.toFixed(3)})`);
         }
 
-        // Client VAD: detect end of user speech → signal Gemini to respond
+        // Client VAD: detect speech/silence and signal Gemini when user finishes
         const boostedRms = rms * this.MIC_GAIN;
+        const wasSpeaking = this.vadSpeechFrames > 0 && this.vadSilenceFrames === 0;
         if (boostedRms >= this.VAD_SPEECH_THRESHOLD) {
           this.vadSpeechFrames++;
           this.vadSilenceFrames = 0;
+          if (!wasSpeaking && this.vadSpeechFrames === 1) {
+            this.options.onUserSpeaking?.(true);
+          }
         } else if (this.vadSpeechFrames >= this.VAD_MIN_SPEECH_FRAMES) {
           this.vadSilenceFrames++;
+          if (this.vadSilenceFrames === 1) {
+            this.options.onUserSpeaking?.(false);
+          }
           if (this.vadSilenceFrames >= this.VAD_SILENCE_FRAMES) {
             const now = Date.now();
             if (now - this.vadTriggeredAt > 3000) {
@@ -355,6 +363,8 @@ export class StreamingSpeechRecognition {
             this.vadSilenceFrames = 0;
           }
         } else {
+          if (this.vadSpeechFrames > 0) this.options.onUserSpeaking?.(false);
+          this.vadSpeechFrames = 0;
           this.vadSilenceFrames = 0;
         }
       };

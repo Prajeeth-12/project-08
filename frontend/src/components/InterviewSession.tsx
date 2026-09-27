@@ -54,6 +54,7 @@ const InterviewSession: React.FC<InterviewSessionProps> = ({
     voiceActivityLevel,
     accumulatedTranscript,
     streamingAiText,
+    isUserSpeaking,
     isListening,
     isProcessing,
     isDisabled,
@@ -144,6 +145,7 @@ const InterviewSession: React.FC<InterviewSessionProps> = ({
           isProcessing={isProcessing}
           accumulatedTranscript={accumulatedTranscript}
           streamingAiText={streamingAiText}
+          isUserSpeaking={isUserSpeaking}
         />
       </div>
 
