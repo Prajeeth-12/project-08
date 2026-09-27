@@ -265,6 +265,13 @@ export class StreamingSpeechRecognition {
   private readonly BARGE_IN_RMS_THRESHOLD: number = 0.06;
   private readonly BARGE_IN_CONSECUTIVE_FRAMES: number = 3;
   private aiSpeakingStartTime: number = 0;
+  // VAD for end-of-speech detection (bypasses Gemini's unreliable VAD)
+  private vadSpeechFrames: number = 0;
+  private vadSilenceFrames: number = 0;
+  private readonly VAD_SPEECH_THRESHOLD: number = 0.04; // after 4x gain
+  private readonly VAD_MIN_SPEECH_FRAMES: number = 8;   // ~0.7s min speech
+  private readonly VAD_SILENCE_FRAMES: number = 18;     // ~1.5s silence = end of turn
+  private vadTriggeredAt: number = 0;
 
   // 4× gain: mic RMS of 0.008–0.030 becomes 0.032–0.120, enough for Gemini's VAD
   private readonly MIC_GAIN = 4.0;
@@ -343,6 +350,8 @@ export class StreamingSpeechRecognition {
               console.log('🗣️ Barge-in detected (RMS:', rms.toFixed(3), ', frames:', this.consecutiveLoudFrames, ') -> interrupting AI');
               this.isAiSpeaking = false;
               this.consecutiveLoudFrames = 0;
+              this.vadSpeechFrames = 0;
+              this.vadSilenceFrames = 0;
               this.options.onBargeIn?.();
             }
           } else {
@@ -359,6 +368,30 @@ export class StreamingSpeechRecognition {
         pcmFrameCounter++;
         if (pcmFrameCounter % 60 === 0) {
           console.log(`🎤 Streaming 16kHz PCM audio frames to AI (RMS: ${rms.toFixed(3)})`);
+        }
+
+        // Client-side VAD: detect end of speech and signal Gemini to respond
+        // (bypasses Gemini's unreliable server-side VAD for low-level mic inputs)
+        const boostedRms = rms * this.MIC_GAIN;
+        if (boostedRms >= this.VAD_SPEECH_THRESHOLD) {
+          this.vadSpeechFrames++;
+          this.vadSilenceFrames = 0;
+        } else if (this.vadSpeechFrames >= this.VAD_MIN_SPEECH_FRAMES) {
+          this.vadSilenceFrames++;
+          if (this.vadSilenceFrames >= this.VAD_SILENCE_FRAMES) {
+            const now2 = Date.now();
+            if (now2 - this.vadTriggeredAt > 3000) { // debounce: max once every 3s
+              this.vadTriggeredAt = now2;
+              console.log(`🗣️ VAD: end-of-speech detected (speech=${this.vadSpeechFrames} frames) → signalling Gemini`);
+              if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify({ type: 'end_of_speech' }));
+              }
+            }
+            this.vadSpeechFrames = 0;
+            this.vadSilenceFrames = 0;
+          }
+        } else {
+          this.vadSilenceFrames = 0;
         }
       };
       

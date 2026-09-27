@@ -598,6 +598,10 @@ def create_speech_api(app):
                                         session_manager.record_voice_turn("user", text)
                                     except Exception:
                                         pass
+                        elif p_type == "end_of_speech":
+                            # Client VAD detected end of user turn — tell Gemini to respond
+                            logger.info("🗣️ Client VAD: end_of_speech → signalling Gemini turn complete")
+                            await nova_session.send_end_of_turn()
                         elif p_type == "renew":
                             await nova_session.renew_connection()
                         elif p_type == "stop":
