@@ -83,8 +83,6 @@ export class StreamingSpeechRecognition {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 3;
   private isMuted: boolean = false;
-  private isAiSpeaking: boolean = false;
-  private lastAiSpeechEndTime: number = 0;
 
   constructor(options: StreamingSpeechOptions) {
     this.options = options;
@@ -94,12 +92,10 @@ export class StreamingSpeechRecognition {
     return this.mediaStream;
   }
 
-  setAiSpeaking(speaking: boolean): void {
-    if (speaking && !this.isAiSpeaking) {
-      this.aiSpeakingStartTime = Date.now();
-    }
-    this.isAiSpeaking = speaking;
-    if (!speaking) {
+  // No-op kept for compatibility
+  setAiSpeaking(_speaking: boolean): void {
+    // barge-in removed — turn-based only
+    if (false) {
       this.lastAiSpeechEndTime = Date.now();
     }
   }
@@ -324,54 +320,24 @@ export class StreamingSpeechRecognition {
       let pcmFrameCounter = 0;
       this.processor.onaudioprocess = (e) => {
         if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-        
         if (this.isMuted) return;
 
         const input = e.inputBuffer.getChannelData(0);
 
-        // Compute RMS energy of the audio frame
+        // RMS for VAD
         let sumSquares = 0;
-        for (let i = 0; i < input.length; i++) {
-          sumSquares += input[i] * input[i];
-        }
+        for (let i = 0; i < input.length; i++) sumSquares += input[i] * input[i];
         const rms = Math.sqrt(sumSquares / input.length);
 
-        const now = Date.now();
-        const inCooldown = (now - this.lastAiSpeechEndTime) < 200;
-
-        // When AI is actively outputting sound or in speaker tail cooldown:
-        if (this.isAiSpeaking || inCooldown) {
-          const aiSpeakingMs = now - this.aiSpeakingStartTime;
-          // Guard: ignore first 800ms of AI speech (echo / speaker bleed)
-          // and require sustained loud speech (3 consecutive frames) to trigger barge-in
-          if (rms >= this.BARGE_IN_RMS_THRESHOLD && aiSpeakingMs > 800) {
-            this.consecutiveLoudFrames++;
-            if (this.consecutiveLoudFrames >= this.BARGE_IN_CONSECUTIVE_FRAMES) {
-              console.log('🗣️ Barge-in detected (RMS:', rms.toFixed(3), ', frames:', this.consecutiveLoudFrames, ') -> interrupting AI');
-              this.isAiSpeaking = false;
-              this.consecutiveLoudFrames = 0;
-              this.vadSpeechFrames = 0;
-              this.vadSilenceFrames = 0;
-              this.options.onBargeIn?.();
-            }
-          } else {
-            this.consecutiveLoudFrames = 0;
-            return;
-          }
-        } else {
-          this.consecutiveLoudFrames = 0;
-        }
-
-        // Resample input to guaranteed 16kHz 16-bit linear PCM
+        // Always send audio to Gemini (no barge-in gating — turn-based)
         const pcm16 = this.resampleTo16kHz(input, currentSampleRate);
         this.ws.send(pcm16.buffer);
         pcmFrameCounter++;
         if (pcmFrameCounter % 60 === 0) {
-          console.log(`🎤 Streaming 16kHz PCM audio frames to AI (RMS: ${rms.toFixed(3)})`);
+          console.log(`🎤 Audio to AI (RMS: ${rms.toFixed(3)})`);
         }
 
-        // Client-side VAD: detect end of speech and signal Gemini to respond
-        // (bypasses Gemini's unreliable server-side VAD for low-level mic inputs)
+        // Client VAD: detect end of user speech → signal Gemini to respond
         const boostedRms = rms * this.MIC_GAIN;
         if (boostedRms >= this.VAD_SPEECH_THRESHOLD) {
           this.vadSpeechFrames++;
@@ -379,13 +345,11 @@ export class StreamingSpeechRecognition {
         } else if (this.vadSpeechFrames >= this.VAD_MIN_SPEECH_FRAMES) {
           this.vadSilenceFrames++;
           if (this.vadSilenceFrames >= this.VAD_SILENCE_FRAMES) {
-            const now2 = Date.now();
-            if (now2 - this.vadTriggeredAt > 3000) { // debounce: max once every 3s
-              this.vadTriggeredAt = now2;
-              console.log(`🗣️ VAD: end-of-speech detected (speech=${this.vadSpeechFrames} frames) → signalling Gemini`);
-              if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                this.ws.send(JSON.stringify({ type: 'end_of_speech' }));
-              }
+            const now = Date.now();
+            if (now - this.vadTriggeredAt > 3000) {
+              this.vadTriggeredAt = now;
+              console.log(`🗣️ VAD: end-of-speech (${this.vadSpeechFrames} frames) → signalling Gemini`);
+              this.ws.send(JSON.stringify({ type: 'end_of_speech' }));
             }
             this.vadSpeechFrames = 0;
             this.vadSilenceFrames = 0;

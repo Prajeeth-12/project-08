@@ -53,13 +53,13 @@ const InterviewSession: React.FC<InterviewSessionProps> = ({
   const {
     voiceActivityLevel,
     accumulatedTranscript,
+    streamingAiText,
     isListening,
     isProcessing,
     isDisabled,
     turnState,
     audioPlaying,
     startVoiceSession,
-    stopVoiceSession,
   } = useVoiceFirstInterview(
     { messages, isLoading, state: 'interviewing', selectedVoice, sessionId, disableAutoTTS: showInstructions },
     onSendMessage,
@@ -143,6 +143,7 @@ const InterviewSession: React.FC<InterviewSessionProps> = ({
           isListening={isListening}
           isProcessing={isProcessing}
           accumulatedTranscript={accumulatedTranscript}
+          streamingAiText={streamingAiText}
         />
       </div>
 
