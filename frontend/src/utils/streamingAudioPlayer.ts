@@ -14,23 +14,55 @@ export class StreamingAudioPlayer {
 
   constructor(onPlaybackStateChange?: (isPlaying: boolean) => void) {
     this.onPlaybackStateChange = onPlaybackStateChange;
+    // Pre-bind unlock listeners for seamless browser autoplay compliance
+    this.setupUnlockListeners();
+  }
+
+  private setupUnlockListeners() {
+    const unlock = () => {
+      this.unlock();
+      window.removeEventListener('click', unlock);
+      window.removeEventListener('touchstart', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+    window.addEventListener('click', unlock, { once: true, passive: true });
+    window.addEventListener('touchstart', unlock, { once: true, passive: true });
+    window.addEventListener('keydown', unlock, { once: true, passive: true });
+  }
+
+  public async unlock(): Promise<void> {
+    try {
+      this.initContext();
+      if (this.audioContext && this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
+        console.log('🔊 StreamingAudioPlayer AudioContext resumed successfully (State:', this.audioContext.state, ')');
+      }
+    } catch (e) {
+      console.warn('Could not resume AudioContext on user interaction:', e);
+    }
   }
 
   private initContext() {
     if (!this.audioContext || this.audioContext.state === 'closed') {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      this.audioContext = new AudioCtx({ sampleRate: 24000 });
+      // Do NOT force sampleRate to 24000 on AudioContext constructor — let it use hardware rate
+      // createBuffer(1, length, 24000) handles the 24kHz resample to hardware cleanly
+      this.audioContext = new AudioCtx();
       this.nextPlayTime = this.audioContext.currentTime;
     }
     if (this.audioContext.state === 'suspended') {
-      this.audioContext.resume();
+      this.audioContext.resume().catch(() => {});
     }
   }
 
-  playChunk(base64Data: string) {
+  async playChunk(base64Data: string) {
     try {
       this.initContext();
       if (!this.audioContext) return;
+
+      if (this.audioContext.state === 'suspended') {
+        await this.audioContext.resume().catch(() => {});
+      }
 
       // Decode base64 to 16-bit PCM
       const binaryString = atob(base64Data);
@@ -47,6 +79,7 @@ export class StreamingAudioPlayer {
         float32[i] = pcm16[i] / 32768.0;
       }
 
+      // Gemini Live and Nova 2 Sonic both output 24kHz PCM mono audio
       const audioBuffer = this.audioContext.createBuffer(1, float32.length, 24000);
       audioBuffer.getChannelData(0).set(float32);
 
@@ -76,7 +109,7 @@ export class StreamingAudioPlayer {
         }
       };
     } catch (e) {
-      console.error('Error playing Nova Sonic PCM audio chunk:', e);
+      console.error('Error playing streaming PCM audio chunk:', e);
     }
   }
 

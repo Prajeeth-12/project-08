@@ -135,9 +135,9 @@ export default function CockpitAudioWave({
     speed: 5,
     amplitude: 0.0,
     frequency: 10,
-    mix: 0.6,
+    mix: 1.0,
     lineWidth: 1.5,
-    color: [0.12, 0.22, 0.37],
+    color: [0.92, 0.70, 0.03],
     colorShift: 0.05,
   });
   const propsRef = useRef({ turnState, isListening, isProcessing, voiceActivity });
@@ -300,7 +300,7 @@ export default function CockpitAudioWave({
         bottom: 0,
         left: 0,
         width: '100%',
-        height: '220px',
+        height: '160px',
         pointerEvents: 'none',
         zIndex: 5,
         maskImage: 'linear-gradient(to top, black 60%, transparent 100%)',

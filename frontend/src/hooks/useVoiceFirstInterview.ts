@@ -41,7 +41,8 @@ export interface SessionData {
 
 export function useVoiceFirstInterview(
   sessionData: SessionData,
-  onSendMessage?: (message: string) => void
+  onSendMessage?: (message: string) => void,
+  onEndInterview?: () => void
 ) {
   const { toast } = useToast();
   
@@ -69,6 +70,7 @@ export function useVoiceFirstInterview(
   
   // Refs for voice management
   const recognitionRef = useRef<StreamingSpeechRecognition | null>(null);
+  const browserRecognitionRef = useRef<any>(null);
   const voiceActivityRef = useRef<number>(0);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -104,14 +106,21 @@ export function useVoiceFirstInterview(
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: { 
-          echoCancellation: true, 
-          noiseSuppression: true, 
-          autoGainControl: true 
-        } 
-      });
+      // Reuse the existing active media stream from recognition to prevent hardware device contention
+      let stream = recognitionRef.current?.getMediaStream();
+      if (!stream) {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: { 
+            echoCancellation: true, 
+            noiseSuppression: true, 
+            autoGainControl: true 
+          } 
+        });
+      }
       
       micStreamRef.current = stream;
       
@@ -177,9 +186,10 @@ export function useVoiceFirstInterview(
       // Clear any previous interim text
       setCurrentInterimText('');
       
-      // Initialize Nova Sonic real-time streaming audio player
+      // Initialize real-time streaming audio player
       if (!audioPlayerRef.current) {
         audioPlayerRef.current = new StreamingAudioPlayer((isPlaying) => {
+          recognitionRef.current?.setAiSpeaking(isPlaying);
           setVoiceState(prev => ({
             ...prev,
             audioPlaying: isPlaying,
@@ -188,17 +198,64 @@ export function useVoiceFirstInterview(
           }));
         });
       }
+      // Unlock audio player context on user activation
+      await audioPlayerRef.current.unlock();
+
+      // Start Browser Web Speech Recognition for instant, 100% reliable local transcription
+      const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognitionClass) {
+        try {
+          if (browserRecognitionRef.current) {
+            try { browserRecognitionRef.current.stop(); } catch (e) {}
+          }
+          const recognizer = new SpeechRecognitionClass();
+          recognizer.continuous = true;
+          recognizer.interimResults = true;
+          recognizer.lang = 'en-US';
+
+          recognizer.onresult = (event: any) => {
+            let interimTranscript = '';
+            let finalTranscript = '';
+
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+              const transcript = event.results[i][0].transcript;
+              if (event.results[i].isFinal) {
+                finalTranscript += transcript + ' ';
+              } else {
+                interimTranscript += transcript;
+              }
+            }
+
+            if (finalTranscript.trim()) {
+              setAccumulatedTranscript(prev => (prev ? prev + ' ' + finalTranscript.trim() : finalTranscript.trim()));
+              setCurrentInterimText('');
+              console.log('🎤 Candidate speech transcribed:', finalTranscript.trim());
+            } else if (interimTranscript.trim()) {
+              setCurrentInterimText(interimTranscript.trim());
+            }
+          };
+
+          recognizer.onerror = (event: any) => {
+            console.debug('Browser speech recognition notice:', event.error);
+          };
+
+          recognizer.start();
+          browserRecognitionRef.current = recognizer;
+        } catch (e) {
+          console.debug('Browser speech recognition error:', e);
+        }
+      }
 
       // Create streaming recognition instance
       recognitionRef.current = api.createStreamingSpeechRecognition({
         sessionId: sessionData.sessionId,
         onConnected: () => {
-          console.log('Connected to Amazon Nova 2 Sonic streaming voice service');
+          console.log('Connected to real-time streaming voice service');
           setMicrophoneActive(true);
           setupVoiceActivityDetection();
         },
         onDisconnected: () => {
-          console.log('Disconnected from Nova Sonic voice service');
+          console.log('Disconnected from voice service');
           setMicrophoneActive(false);
           setVoiceState(prev => ({
             ...prev,
@@ -208,21 +265,28 @@ export function useVoiceFirstInterview(
         },
         onTranscript: (text, isFinal, role) => {
           if (text && text.trim() !== '') {
+            // STRICT FILTER: AI interviewer transcripts must never be accumulated into the candidate's answer!
+            if (role === 'assistant') {
+              return;
+            }
             if (isFinal) {
               setAccumulatedTranscript(prev => {
                 const newText = prev.trim() ? prev + ' ' + text : text;
-                console.log(`📝 Final [${role || 'user'}] transcript accumulated:`, text);
+                console.log('📝 Final [user] transcript accumulated:', text);
                 return newText;
               });
               setCurrentInterimText('');
             } else {
               setCurrentInterimText(text);
-              console.log(`📝 Interim [${role || 'user'}] transcript:`, text);
+              console.log('📝 Interim [user] transcript:', text);
             }
           }
         },
         onAudioChunk: (base64Audio) => {
-          // Play returned Nova Sonic 24kHz PCM audio chunk in real time
+          // Notify recognition that AI is outputting audio so microphone transmission is gated
+          if (recognitionRef.current) {
+            recognitionRef.current.setAiSpeaking(true);
+          }
           if (audioPlayerRef.current) {
             audioPlayerRef.current.playChunk(base64Audio);
           }
@@ -235,6 +299,9 @@ export function useVoiceFirstInterview(
         },
         onBargeIn: () => {
           console.log('🛑 Barge-in: candidate interrupted interviewer audio');
+          if (recognitionRef.current) {
+            recognitionRef.current.setAiSpeaking(false);
+          }
           if (audioPlayerRef.current) {
             audioPlayerRef.current.stop();
           }
@@ -246,7 +313,23 @@ export function useVoiceFirstInterview(
           }));
         },
         onTurnEnded: (stopReason) => {
-          console.log('Turn ended:', stopReason);
+          console.log('🔄 Turn ended:', stopReason, '-> resetting to user turn');
+          // AI finished its turn — ensure mic is fully open for candidate
+          if (recognitionRef.current) {
+            recognitionRef.current.setAiSpeaking(false);
+          }
+          setVoiceState(prev => ({
+            ...prev,
+            turnState: prev.audioPlaying ? 'ai' : 'user',
+            audioState: prev.audioPlaying ? prev.audioState : 'idle'
+          }));
+        },
+        onInterviewEnding: () => {
+          console.log('🏁 Backend signaled interview ending -> transitioning to scorecard');
+          // Allow brief pause for final speech playback before transitioning
+          setTimeout(() => {
+            onEndInterview?.();
+          }, 2500);
         },
         onSpeechStarted: () => {
           setVoiceState(prev => ({
@@ -297,6 +380,14 @@ export function useVoiceFirstInterview(
   const stopVoiceRecognition = useCallback(() => {
     console.log('🛑 Stopping voice recognition...');
     
+    // Stop browser speech recognition
+    if (browserRecognitionRef.current) {
+      try {
+        browserRecognitionRef.current.stop();
+      } catch (e) {}
+      browserRecognitionRef.current = null;
+    }
+
     // IMMEDIATE PROCESSING STATE - Show processing state right away
     setVoiceState(prev => ({
       ...prev,
@@ -407,93 +498,74 @@ export function useVoiceFirstInterview(
     setCoachFeedbackVisible(false);
   }, []);
 
-  // Enhanced TTS implementation - SIMPLIFIED: Unified handling for all messages
-  const playTextToSpeech = useCallback(async (text: string) => {
-    const { selectedVoice } = sessionData;
-    
-    if (!selectedVoice) {
-      console.warn('⚠️ No selectedVoice available for TTS');
+  // High-performance speech synthesis for clear, loud AI vocal responses
+  const speakText = useCallback((text: string) => {
+    if (!text || typeof window === 'undefined' || !('speechSynthesis' in window)) {
       return;
     }
-    
-    console.log('🔊 Starting TTS playback:', {
-      text: text.slice(0, 50) + '...',
-      audioPlayingBefore: voiceState.audioPlaying,
-      turnStateBefore: voiceState.turnState
-    });
-    
+
     try {
-      // Start TTS - unified handling
-      handleTTSStart();
+      window.speechSynthesis.cancel();
+
+      // Clean markdown formatting before speaking
+      const cleanText = text.replace(/[*_#`]/g, '').trim();
+      if (!cleanText) return;
+
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+
+      const voices = window.speechSynthesis.getVoices();
+      const preferredVoice = voices.find(v => 
+        (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Jenny') || v.name.includes('Guy') || v.name.includes('Samantha') || v.name.includes('David') || v.name.includes('Zira') || v.name.includes('English')) && v.lang.startsWith('en')
+      ) || voices.find(v => v.lang.startsWith('en'));
       
-      const startTime = Date.now();
-      const audioBlob = await api.textToSpeech(text);
-      const synthesisTime = Date.now() - startTime;
-      
-      console.log(`🔊 TTS synthesis completed in ${synthesisTime}ms`);
-      
-      const audioUrl = URL.createObjectURL(audioBlob);
-      
-      // Stop any currently playing audio
-      if (currentAudioRef.current) {
-        currentAudioRef.current.pause();
-        currentAudioRef.current = null;
+      if (preferredVoice) {
+        utterance.voice = preferredVoice;
       }
-      
-      const audio = new Audio(audioUrl);
-      currentAudioRef.current = audio;
-      
-      // Set up event handlers before playing
-      audio.onplay = () => {
-        console.log('🔊 TTS audio started playing - NOW showing AI visual state');
-        // UNIFIED: Always set AI visual state when audio plays, regardless of initial vs regular
+
+      utterance.onstart = () => {
+        console.log('🗣️ AI Spoken Response Started:', cleanText.slice(0, 50));
+        recognitionRef.current?.setAiSpeaking(true);
         setVoiceState(prev => ({
           ...prev,
-          audioState: 'playing' as const,
-          turnState: 'ai' as const,
-          microphoneState: 'idle' as const,
-          audioPlaying: true
+          audioPlaying: true,
+          audioState: 'playing',
+          turnState: 'ai'
         }));
       };
-      
-      audio.onended = () => {
-        console.log('🔊 TTS audio playback ended');
-        URL.revokeObjectURL(audioUrl);
-        currentAudioRef.current = null;
-        handleTTSEnd();
+
+      utterance.onend = () => {
+        console.log('🗣️ AI Spoken Response Concluded');
+        recognitionRef.current?.setAiSpeaking(false);
+        setVoiceState(prev => ({
+          ...prev,
+          audioPlaying: false,
+          audioState: 'idle',
+          turnState: 'user'
+        }));
       };
-      
-      // Also handle if audio fails to load
-      audio.onerror = (error) => {
-        console.error('🔊 Audio playback error:', error);
-        URL.revokeObjectURL(audioUrl);
-        currentAudioRef.current = null;
-        handleTTSEnd();
+
+      utterance.onerror = (e) => {
+        console.warn('Speech synthesis notice:', e);
+        recognitionRef.current?.setAiSpeaking(false);
+        setVoiceState(prev => ({
+          ...prev,
+          audioPlaying: false,
+          audioState: 'idle',
+          turnState: 'user'
+        }));
       };
-      
-      console.log('🔊 TTS audio created, starting playback');
-      await audio.play();
-      
-    } catch (error) {
-      console.error('TTS playback failed:', error);
-      handleTTSEnd();
-      
-      // Show user-friendly error for slow TTS
-      if (error instanceof Error && error.message.includes('timeout')) {
-        toast({
-          title: 'Speech Service Warming Up',
-          description: 'The speech service is initializing. Please try again in a moment.',
-          variant: 'default',
-        });
-      } else {
-        toast({
-          title: 'Audio Playback Error',
-          description: 'Could not play the AI response audio.',
-          variant: 'destructive',
-        });
-      }
+
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.error('Failed to speak text:', e);
     }
-  }, [sessionData.selectedVoice, handleTTSStart, handleTTSEnd, toast]); // Removed voiceState dependencies to prevent recreation
+  }, []);
+
+  const playTextToSpeech = useCallback(async (text: string) => {
+    speakText(text);
+  }, [speakText]);
 
   // Auto-enable voice when new AI message arrives
   const { messages, disableAutoTTS } = sessionData;
@@ -501,30 +573,23 @@ export function useVoiceFirstInterview(
   const lastProcessedMessageRef = useRef<string | null>(null);
   
   useEffect(() => {
-    // Skip auto-TTS if disabled
-    if (disableAutoTTS) {
-      return;
-    }
+    if (disableAutoTTS) return;
     
     if (lastMessage && 
         lastMessage.role === 'assistant' && 
         lastMessage.agent !== 'coach' &&
-        typeof lastMessage.content === 'string') {
+        typeof lastMessage.content === 'string' &&
+        lastMessage.content.trim()) {
       
-      // Create a unique key from message index and content
       const messageKey = `${messages.length - 1}-${lastMessage.content.slice(0, 50)}`;
       
       if (messageKey !== lastProcessedMessageRef.current) {
-        // Mark this message as processed to avoid re-triggering
         lastProcessedMessageRef.current = messageKey;
-        
-        console.log('🔊 Auto-playing TTS for AI response - maintaining processing state');
-        
-        // IMMEDIATE TTS call - ensures processing state continuity
-        playTextToSpeech(lastMessage.content as string);
+        console.log('🔊 Auto-speaking AI message aloud:', lastMessage.content.slice(0, 50));
+        speakText(lastMessage.content);
       }
     }
-  }, [lastMessage, disableAutoTTS, playTextToSpeech]); // Include playTextToSpeech to prevent stale closures
+  }, [lastMessage, disableAutoTTS, speakText, messages.length]);
 
   // Cleanup on unmount
   useEffect(() => {

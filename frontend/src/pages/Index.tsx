@@ -843,6 +843,7 @@ const Index = () => {
         
         {state === 'interviewing' && (
           <InterviewSession 
+            interviewDurationMinutes={interviewDuration}
             messages={messages}
             isLoading={isLoading}
             onSendMessage={actions.sendMessage}

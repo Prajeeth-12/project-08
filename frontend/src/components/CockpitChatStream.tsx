@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { Message, CoachFeedbackContent } from '@/hooks/useInterviewSession';
+import { Message } from '@/hooks/useInterviewSession';
+import { Bot, User, Loader2 } from 'lucide-react';
 
 interface CockpitChatStreamProps {
   messages: Message[];
@@ -9,52 +10,13 @@ interface CockpitChatStreamProps {
   accumulatedTranscript?: string;
 }
 
-// 3x3 grid of 3.5px dots in #DC2626, opacity 0.7
 const SparkleIcon: React.FC = () => (
-  <div
-    className="grid grid-cols-3 gap-[2px] mb-[6px]"
-    style={{ width: 'fit-content', opacity: 0.7 }}
-  >
+  <div className="inline-grid grid-cols-3 gap-[2px]">
     {Array.from({ length: 9 }).map((_, i) => (
-      <div
-        key={i}
-        style={{
-          width: 3.5,
-          height: 3.5,
-          borderRadius: '50%',
-          backgroundColor: '#DC2626',
-        }}
-      />
+      <span key={i} className="w-[3px] h-[3px] rounded-full bg-[#DC2626] opacity-60" />
     ))}
   </div>
 );
-
-// Animated pulse dot
-const PulseDot: React.FC<{ color: string }> = ({ color }) => (
-  <span className="relative inline-flex items-center justify-center" style={{ width: 10, height: 10 }}>
-    <span
-      className="animate-ping absolute inline-flex rounded-full opacity-60"
-      style={{ backgroundColor: color, width: 8, height: 8 }}
-    />
-    <span
-      className="relative inline-flex rounded-full"
-      style={{ backgroundColor: color, width: 5, height: 5 }}
-    />
-  </span>
-);
-
-type StatusType = 'listening' | 'speaking' | 'processing' | null;
-
-function deriveStatus(
-  isProcessing: boolean,
-  turnState: 'user' | 'ai' | 'idle',
-  isListening: boolean
-): StatusType {
-  if (isProcessing) return 'processing';
-  if (turnState === 'ai') return 'speaking';
-  if (isListening) return 'listening';
-  return null;
-}
 
 const CockpitChatStream: React.FC<CockpitChatStreamProps> = ({
   messages,
@@ -65,21 +27,14 @@ const CockpitChatStream: React.FC<CockpitChatStreamProps> = ({
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length, turnState, isListening, isProcessing, accumulatedTranscript]);
 
-  // Filter: only string content, exclude coach messages
   const visibleMessages = messages.filter(
-    (m) =>
-      typeof m.content === 'string' &&
-      m.agent !== 'coach'
+    (m) => typeof m.content === 'string' && m.agent !== 'coach'
   );
 
-  const status = deriveStatus(isProcessing, turnState, isListening);
-
-  // Determine if a message is "older" AI message (not the last AI message)
   const lastAiIndex = (() => {
     for (let i = visibleMessages.length - 1; i >= 0; i--) {
       if (visibleMessages[i].role === 'assistant') return i;
@@ -89,137 +44,72 @@ const CockpitChatStream: React.FC<CockpitChatStreamProps> = ({
 
   return (
     <div
+      className="flex flex-col gap-4 w-full max-w-lg mx-auto overflow-y-auto px-4 py-4 scroll-smooth"
       style={{
-        maxWidth: 560,
-        maxHeight: 'calc(100vh - 320px)',
-        overflowY: 'auto',
-        // Fade top 15% with mask
-        maskImage: 'linear-gradient(to bottom, transparent 0%, black 15%, black 100%)',
-        WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 15%, black 100%)',
+        maxHeight: 'calc(100vh - 260px)',
+        maskImage: 'linear-gradient(to bottom, transparent 0%, black 8%, black 100%)',
+        WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 8%, black 100%)',
       }}
-      className="flex flex-col gap-3 w-full px-2 py-2"
     >
       {visibleMessages.map((msg, idx) => {
-        const isAssistant = msg.role === 'assistant';
-        const isOldAi = isAssistant && idx !== lastAiIndex;
-        const content = msg.content as string;
+        const isAI = msg.role === 'assistant';
+        const isOld = isAI && idx !== lastAiIndex;
+        const text = msg.content as string;
 
-        if (isAssistant) {
+        if (isAI) {
           return (
-            <div
-              key={idx}
-              className="flex flex-col items-start"
-              style={{ opacity: isOldAi ? 0.18 : 1, transition: 'opacity 0.3s' }}
-            >
-              <SparkleIcon />
-              <p
-                style={{
-                  fontSize: 15,
-                  color: '#e4e4e4',
-                  lineHeight: 1.6,
-                  margin: 0,
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                }}
-              >
-                {content}
+            <div key={idx} className="flex items-start gap-3 max-w-[90%]" style={{ opacity: isOld ? 0.35 : 1, transition: 'opacity 0.4s' }}>
+              <div className="w-7 h-7 rounded-lg bg-[#DC2626]/10 border border-[#DC2626]/20 flex items-center justify-center shrink-0 mt-0.5">
+                <SparkleIcon />
+              </div>
+              <p className="text-[14px] leading-[1.7] text-[#111827] whitespace-pre-wrap break-words">
+                {text}
               </p>
             </div>
           );
         }
 
-        // User message — right-aligned pill
         return (
           <div key={idx} className="flex justify-end">
-            <div
-              style={{
-                fontSize: 14,
-                color: '#e4e4e4',
-                backgroundColor: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 20,
-                padding: '8px 14px',
-                maxWidth: '80%',
-                lineHeight: 1.5,
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}
-            >
-              {content}
+            <div className="max-w-[80%] px-4 py-2.5 rounded-2xl rounded-br-md bg-[#FEF3C7] border border-[#EAB308]/40 text-[14px] text-[#111827] leading-relaxed whitespace-pre-wrap break-words">
+              {text}
             </div>
           </div>
         );
       })}
 
-      {/* Live accumulated transcript — italic gold pill when listening */}
+      {/* Live transcript */}
       {isListening && accumulatedTranscript && (
         <div className="flex justify-end">
-          <div
-            style={{
-              fontSize: 14,
-              color: '#EAB308',
-              backgroundColor: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 20,
-              padding: '8px 14px',
-              maxWidth: '80%',
-              fontStyle: 'italic',
-              lineHeight: 1.5,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-            }}
-          >
-            {accumulatedTranscript}
+          <div className="max-w-[80%] px-4 py-2.5 rounded-2xl rounded-br-md bg-[#FEF3C7]/50 border border-[#EAB308]/20 text-[14px] text-[#92400E] leading-relaxed italic whitespace-pre-wrap">
+            {accumulatedTranscript}...
           </div>
         </div>
       )}
 
-      {/* Status pill */}
-      {status === 'listening' && (
-        <div className="flex justify-end items-center gap-2">
-          <PulseDot color="#EAB308" />
-          <span
-            style={{
-              fontSize: 12,
-              color: '#EAB308',
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-            }}
-          >
-            Listening
-          </span>
+      {/* Status indicators */}
+      {isProcessing && (
+        <div className="flex items-center gap-2 text-[#6B7280]">
+          <Loader2 size={14} className="animate-spin" />
+          <span className="text-xs font-medium">AI is thinking...</span>
         </div>
       )}
 
-      {status === 'speaking' && (
-        <div className="flex justify-start items-center gap-2">
-          <PulseDot color="#DC2626" />
-          <span
-            style={{
-              fontSize: 12,
-              color: '#DC2626',
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-            }}
-          >
-            Speaking
-          </span>
+      {turnState === 'ai' && !isProcessing && (
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#DC2626] animate-bounce" style={{ animationDelay: '0s' }} />
+            <span className="w-1.5 h-1.5 rounded-full bg-[#DC2626] animate-bounce" style={{ animationDelay: '0.15s' }} />
+            <span className="w-1.5 h-1.5 rounded-full bg-[#DC2626] animate-bounce" style={{ animationDelay: '0.3s' }} />
+          </div>
+          <span className="text-xs font-medium text-[#DC2626]">Speaking</span>
         </div>
       )}
 
-      {status === 'processing' && (
-        <div className="flex justify-start items-center gap-2">
-          <PulseDot color="rgba(255,255,255,0.35)" />
-          <span
-            style={{
-              fontSize: 12,
-              color: 'rgba(255,255,255,0.35)',
-              fontStyle: 'italic',
-              letterSpacing: '0.05em',
-            }}
-          >
-            Processing…
-          </span>
+      {isListening && !accumulatedTranscript && (
+        <div className="flex items-center gap-2 justify-end">
+          <span className="text-xs font-medium text-[#EAB308]">Listening</span>
+          <span className="w-2 h-2 rounded-full bg-[#EAB308] animate-pulse" />
         </div>
       )}
 

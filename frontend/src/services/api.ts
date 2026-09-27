@@ -42,7 +42,7 @@ export interface InterviewStartRequest {
 
 // Speech recognition types
 export interface SpeechTranscriptionEvent {
-  type: 'transcript' | 'error' | 'connected' | 'speech_started' | 'utterance_end' | 'audio' | 'barge_in' | 'turn_ended';
+  type: 'transcript' | 'error' | 'connected' | 'speech_started' | 'utterance_end' | 'audio' | 'barge_in' | 'turn_ended' | 'renewed' | 'interview_ending';
   text?: string;
   is_final?: boolean;
   error?: string;
@@ -50,10 +50,11 @@ export interface SpeechTranscriptionEvent {
   timestamp?: string | number;
   event_time?: string;
   last_spoken_at?: number;
-  data?: string; // base64 audio chunk from Amazon Nova 2 Sonic
+  data?: string; // base64 audio chunk from Amazon Nova 2 Sonic / Gemini Live
   role?: 'user' | 'assistant';
   stop_reason?: string;
   engine?: string;
+  state?: any;
 }
 
 export interface StreamingSpeechOptions {
@@ -67,6 +68,7 @@ export interface StreamingSpeechOptions {
   onAudioChunk?: (base64Audio: string) => void;
   onBargeIn?: () => void;
   onTurnEnded?: (stopReason: string) => void;
+  onInterviewEnding?: (state?: any) => void;
 }
 
 export class StreamingSpeechRecognition {
@@ -80,9 +82,27 @@ export class StreamingSpeechRecognition {
   private options: StreamingSpeechOptions;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 3;
+  private isMuted: boolean = false;
+  private isAiSpeaking: boolean = false;
+  private lastAiSpeechEndTime: number = 0;
 
   constructor(options: StreamingSpeechOptions) {
     this.options = options;
+  }
+
+  getMediaStream(): MediaStream | null {
+    return this.mediaStream;
+  }
+
+  setAiSpeaking(speaking: boolean): void {
+    this.isAiSpeaking = speaking;
+    if (!speaking) {
+      this.lastAiSpeechEndTime = Date.now();
+    }
+  }
+
+  setMuted(muted: boolean): void {
+    this.isMuted = muted;
   }
 
   async start(): Promise<void> {
@@ -100,7 +120,7 @@ export class StreamingSpeechRecognition {
       await this.connectWebSocket();
       
       // Start recording and streaming audio
-      this.startRecording();
+      await this.startRecording();
       
       return Promise.resolve();
     } catch (error) {
@@ -211,6 +231,11 @@ export class StreamingSpeechRecognition {
             case 'connected':
               this.options.onConnected();
               break;
+            case 'interview_ending':
+              if (this.options.onInterviewEnding) {
+                this.options.onInterviewEnding(data.state);
+              }
+              break;
           }
         } catch (error) {
           console.error('Error processing Nova Sonic message:', error);
@@ -227,30 +252,103 @@ export class StreamingSpeechRecognition {
     }
   }
 
-  private startRecording(): void {
+  private consecutiveLoudFrames: number = 0;
+  private readonly BARGE_IN_RMS_THRESHOLD: number = 0.035;
+
+  private resampleTo16kHz(input: Float32Array, sampleRate: number): Int16Array {
+    if (sampleRate === 16000) {
+      const pcm16 = new Int16Array(input.length);
+      for (let i = 0; i < input.length; i++) {
+        const s = Math.max(-1, Math.min(1, input[i]));
+        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+      return pcm16;
+    }
+
+    const ratio = sampleRate / 16000;
+    const outLength = Math.floor(input.length / ratio);
+    const pcm16 = new Int16Array(outLength);
+
+    for (let i = 0; i < outLength; i++) {
+      const origPos = i * ratio;
+      const index = Math.floor(origPos);
+      const frac = origPos - index;
+      const s1 = input[index] || 0;
+      const s2 = index + 1 < input.length ? input[index + 1] : s1;
+      const interpolated = s1 + frac * (s2 - s1);
+      const clamped = Math.max(-1, Math.min(1, interpolated));
+      pcm16[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7FFF;
+    }
+    return pcm16;
+  }
+
+  private async startRecording(): Promise<void> {
     if (!this.mediaStream || !this.isConnected) return;
     
     try {
-      // Use Web Audio API to stream 16kHz 16-bit linear PCM directly to Nova Sonic
+      // Use Web Audio API to capture microphone audio
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      this.audioContext = new AudioCtx({ sampleRate: 16000 });
+      this.audioContext = new AudioCtx();
+      if (this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
+      }
       this.inputSource = this.audioContext.createMediaStreamSource(this.mediaStream);
-      // 2048 samples at 16kHz = ~128ms frames
-      this.processor = this.audioContext.createScriptProcessor(2048, 1, 1);
+      // 2048 or 4096 samples buffer
+      const bufferSize = this.audioContext.sampleRate > 32000 ? 4096 : 2048;
+      this.processor = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
       
+      const currentSampleRate = this.audioContext.sampleRate;
+      console.log(`🎙️ Recording started at native sample rate: ${currentSampleRate}Hz (resampling to 16kHz PCM)`);
+
+      let pcmFrameCounter = 0;
       this.processor.onaudioprocess = (e) => {
         if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+        
+        if (this.isMuted) return;
+
         const input = e.inputBuffer.getChannelData(0);
-        const pcm16 = new Int16Array(input.length);
+
+        // Compute RMS energy of the audio frame
+        let sumSquares = 0;
         for (let i = 0; i < input.length; i++) {
-          const s = Math.max(-1, Math.min(1, input[i]));
-          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+          sumSquares += input[i] * input[i];
         }
+        const rms = Math.sqrt(sumSquares / input.length);
+
+        const now = Date.now();
+        const inCooldown = (now - this.lastAiSpeechEndTime) < 200;
+
+        // When AI is actively outputting sound or in speaker tail cooldown:
+        if (this.isAiSpeaking || inCooldown) {
+          // If candidate speaks during AI speech, trigger barge-in interruption immediately
+          if (rms >= 0.02) {
+            console.log('🗣️ Voice barge-in detected (RMS:', rms.toFixed(3), ') -> interrupting AI');
+            this.isAiSpeaking = false;
+            this.consecutiveLoudFrames = 0;
+            this.options.onBargeIn?.();
+          } else {
+            return;
+          }
+        } else {
+          this.consecutiveLoudFrames = 0;
+        }
+
+        // Resample input to guaranteed 16kHz 16-bit linear PCM
+        const pcm16 = this.resampleTo16kHz(input, currentSampleRate);
         this.ws.send(pcm16.buffer);
+        pcmFrameCounter++;
+        if (pcmFrameCounter % 60 === 0) {
+          console.log(`🎤 Streaming 16kHz PCM audio frames to AI (RMS: ${rms.toFixed(3)})`);
+        }
       };
       
+      // Connect through a zero-gain node to destination so onaudioprocess runs
+      // WITHOUT routing microphone audio back through the device speakers
+      const silentGain = this.audioContext.createGain();
+      silentGain.gain.value = 0;
       this.inputSource.connect(this.processor);
-      this.processor.connect(this.audioContext.destination);
+      this.processor.connect(silentGain);
+      silentGain.connect(this.audioContext.destination);
     } catch (err) {
       console.warn('Web Audio PCM capture unavailable, using MediaRecorder fallback:', err);
       try {
