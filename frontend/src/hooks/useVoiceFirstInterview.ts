@@ -67,6 +67,7 @@ export function useVoiceFirstInterview(
   const analyserRef = useRef<AnalyserNode | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const audioPlayerRef = useRef<StreamingAudioPlayer | null>(null);
+  const bargedInRef = useRef(false);
 
   const accumulatedTranscriptRef = useRef(accumulatedTranscript);
   const currentInterimTextRef = useRef(currentInterimText);
@@ -226,7 +227,9 @@ export function useVoiceFirstInterview(
         },
 
         onAudioChunk: (base64Audio) => {
-          // AI is speaking — gate mic transmission, play audio
+          // After barge-in, drop stale audio until Gemini acknowledges the interruption
+          if (bargedInRef.current) return;
+
           recognitionRef.current?.setAiSpeaking(true);
           audioPlayerRef.current?.playChunk(base64Audio);
           setVoiceState(prev => ({
@@ -235,13 +238,13 @@ export function useVoiceFirstInterview(
             turnState: 'ai',
             audioPlaying: true,
           }));
-          // Clear user transcript when AI starts responding
           setAccumulatedTranscript('');
           setCurrentInterimText('');
         },
 
         onBargeIn: () => {
           console.log('🛑 Barge-in: user interrupted AI');
+          bargedInRef.current = true;
           recognitionRef.current?.setAiSpeaking(false);
           audioPlayerRef.current?.stop();
           setVoiceState(prev => ({
@@ -254,6 +257,7 @@ export function useVoiceFirstInterview(
 
         onTurnEnded: (stopReason) => {
           console.log('🔄 AI turn ended:', stopReason, '→ mic open for user');
+          bargedInRef.current = false;
           recognitionRef.current?.setAiSpeaking(false);
           setVoiceState(prev => ({
             ...prev,
