@@ -266,11 +266,14 @@ export class StreamingSpeechRecognition {
   private readonly BARGE_IN_CONSECUTIVE_FRAMES: number = 3;
   private aiSpeakingStartTime: number = 0;
 
+  // 4× gain: mic RMS of 0.008–0.030 becomes 0.032–0.120, enough for Gemini's VAD
+  private readonly MIC_GAIN = 4.0;
+
   private resampleTo16kHz(input: Float32Array, sampleRate: number): Int16Array {
     if (sampleRate === 16000) {
       const pcm16 = new Int16Array(input.length);
       for (let i = 0; i < input.length; i++) {
-        const s = Math.max(-1, Math.min(1, input[i]));
+        const s = Math.max(-1, Math.min(1, input[i] * this.MIC_GAIN));
         pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
       }
       return pcm16;
@@ -286,7 +289,7 @@ export class StreamingSpeechRecognition {
       const frac = origPos - index;
       const s1 = input[index] || 0;
       const s2 = index + 1 < input.length ? input[index + 1] : s1;
-      const interpolated = s1 + frac * (s2 - s1);
+      const interpolated = (s1 + frac * (s2 - s1)) * this.MIC_GAIN;
       const clamped = Math.max(-1, Math.min(1, interpolated));
       pcm16[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7FFF;
     }

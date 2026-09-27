@@ -177,19 +177,19 @@ export function useVoiceFirstInterview(
             }
             if (finalTranscript.trim()) {
               const trimmed = finalTranscript.trim();
+              console.log('[STT] Final transcript:', trimmed, '| wsReady:', !!recognitionRef.current, '| bargedIn:', bargedInRef.current);
               setAccumulatedTranscript(prev => (prev ? prev + ' ' + trimmed : trimmed));
               setCurrentInterimText('');
-              // Send final transcript to Gemini via WebSocket so it generates an audio response
-              // (Gemini's own VAD often misses low-level mic input)
               if (recognitionRef.current && !bargedInRef.current) {
-                console.log('📤 Sending browser STT transcript to Gemini:', trimmed);
                 recognitionRef.current.sendTranscript(trimmed);
               }
             } else if (interimTranscript.trim()) {
               setCurrentInterimText(interimTranscript.trim());
             }
           };
-          recognizer.onerror = (event: any) => console.debug('Browser speech recognition notice:', event.error);
+          recognizer.onerror = (event: any) => {
+            if (event.error !== 'no-speech') console.warn('[STT] error:', event.error);
+          };
           recognizer.onend = () => {
             // Auto-restart if session is still active
             if (recognitionRef.current && !recognitionRef.current['isStopped']) {
