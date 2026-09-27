@@ -108,6 +108,12 @@ export class StreamingSpeechRecognition {
     this.isMuted = muted;
   }
 
+  sendTranscript(text: string): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && text.trim()) {
+      this.ws.send(JSON.stringify({ type: 'transcript', text }));
+    }
+  }
+
   async start(): Promise<void> {
     try {
       // Get microphone access with acoustic echo cancellation

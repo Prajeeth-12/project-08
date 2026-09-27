@@ -176,8 +176,15 @@ export function useVoiceFirstInterview(
               }
             }
             if (finalTranscript.trim()) {
-              setAccumulatedTranscript(prev => (prev ? prev + ' ' + finalTranscript.trim() : finalTranscript.trim()));
+              const trimmed = finalTranscript.trim();
+              setAccumulatedTranscript(prev => (prev ? prev + ' ' + trimmed : trimmed));
               setCurrentInterimText('');
+              // Send final transcript to Gemini via WebSocket so it generates an audio response
+              // (Gemini's own VAD often misses low-level mic input)
+              if (recognitionRef.current && !bargedInRef.current) {
+                console.log('📤 Sending browser STT transcript to Gemini:', trimmed);
+                recognitionRef.current.sendTranscript(trimmed);
+              }
             } else if (interimTranscript.trim()) {
               setCurrentInterimText(interimTranscript.trim());
             }

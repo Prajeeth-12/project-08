@@ -586,6 +586,18 @@ def create_speech_api(app):
                         p_type = parsed.get("type")
                         if p_type == "audio":
                             await nova_session.send_audio_chunk(parsed.get("data", ""))
+                        elif p_type == "transcript":
+                            # Browser STT final transcript → send as text turn to Gemini
+                            text = parsed.get("text", "").strip()
+                            if text:
+                                logger.info(f"📝 User transcript from browser STT: '{text[:80]}'")
+                                await nova_session.send_realtime_text(text)
+                                # Also record in session for orchestrator tracking
+                                if session_manager:
+                                    try:
+                                        session_manager.record_voice_turn("user", text)
+                                    except Exception:
+                                        pass
                         elif p_type == "renew":
                             await nova_session.renew_connection()
                         elif p_type == "stop":
