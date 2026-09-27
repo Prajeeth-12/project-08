@@ -30,6 +30,10 @@ _parent_dir = os.path.dirname(_current_dir)
 if _parent_dir not in sys.path:
     sys.path.insert(0, _parent_dir)
 
+# Load environment variables FIRST before importing backend modules
+env_path = os.path.join(_current_dir, ".env")
+load_dotenv(dotenv_path=env_path) if os.path.exists(env_path) else load_dotenv()
+
 # LangChain 1.x compatibility shim
 try:
     import langchain.chains
@@ -57,10 +61,7 @@ from backend.api.agent_api import create_agent_api
 from backend.api.speech_api import create_speech_api
 from backend.api.file_processing_api import create_file_processing_api
 from backend.api.auth_api import create_auth_api
-
 from backend.middleware import SessionSavingMiddleware
-env_path = os.path.join(os.path.dirname(__file__), ".env")
-load_dotenv(dotenv_path=env_path) if os.path.exists(env_path) else load_dotenv()
 
 # Enhanced Azure-compatible logging setup
 def setup_azure_logging():
@@ -301,7 +302,7 @@ async def warmup_services():
     # Check if running in production (Azure has WEBSITES_PORT environment variable)
     is_production = os.environ.get("WEBSITES_PORT") is not None
     
-    # Enhanced TTS service warmup - only in production
+    # Optional legacy TTS service warmup (only if AWS credentials configured and in production)
     try:
         from backend.api.speech.tts_service import TTSService
         tts_service = TTSService()
@@ -309,31 +310,18 @@ async def warmup_services():
         if tts_service.is_available():
             if is_production:
                 logger.info("🎤 Warming up Amazon Polly TTS service (production mode)...")
-                
-                # Single optimized warmup call to establish connection pool
-                # Using minimal text to reduce character consumption: "Hi" = 2 characters vs previous 28
                 try:
                     ssml_text = tts_service._prepare_ssml("Hi", 1.0)
                     start_time = asyncio.get_event_loop().time()
-                    
-                    # Run single warmup synthesis to establish connection
                     await tts_service._synthesize_speech_with_retry(ssml_text, tts_service.default_voice)
-                    
-                    end_time = asyncio.get_event_loop().time()
-                    duration = end_time - start_time
-                    logger.info(f"✅ TTS warmup completed in {duration:.2f}s (2 characters used)")
-                    
+                    duration = asyncio.get_event_loop().time() - start_time
+                    logger.info(f"✅ TTS warmup completed in {duration:.2f}s")
                 except Exception as e:
-                    logger.warning(f"⚠️ TTS warmup failed: {e}")
-                
-                logger.info("✅ TTS service warmed up successfully")
+                    logger.debug(f"TTS warmup skipped: {e}")
             else:
-                logger.info("⚠️ Skipping TTS warmup (development mode - cost optimization)")
-        else:
-            logger.warning("⚠️ TTS service not available for warmup (missing AWS credentials)")
-            
+                logger.debug("Skipping legacy Polly TTS warmup (development mode)")
     except Exception as e:
-        logger.warning(f"⚠️ TTS warmup failed (service will still work on first use): {e}")
+        logger.debug(f"TTS service initialization skipped: {e}")
     
     # Test database connectivity
     try:

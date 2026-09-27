@@ -19,6 +19,11 @@ import jwt
 import base64
 import json
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Ensure environment variables are loaded
+_env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+load_dotenv(dotenv_path=_env_path) if os.path.exists(_env_path) else load_dotenv()
 
 from .speech.tts_service import TTSService
 from backend.services.nova_sonic_engine import get_nova_sonic_engine
@@ -34,12 +39,15 @@ logger = logging.getLogger(__name__)
 tts_service = TTSService()
 rate_limiter = get_rate_limiter()
 
-VOICE_PROVIDER = os.getenv("VOICE_PROVIDER", "nova").lower()
+
+def get_voice_provider() -> str:
+    """Get active voice provider dynamically from environment."""
+    return os.getenv("VOICE_PROVIDER", "nova").lower()
 
 
 def get_voice_engine():
     """Return the active voice engine based on VOICE_PROVIDER env var."""
-    if VOICE_PROVIDER == "gemini":
+    if get_voice_provider() == "gemini":
         return get_gemini_voice_engine()
     return get_nova_sonic_engine()
 
@@ -540,13 +548,29 @@ def create_speech_api(app):
             on_error=on_error
         )
 
-        provider_label = VOICE_PROVIDER
+        provider_label = get_voice_provider()
         await websocket.send_json({
             "type": "connected",
             "engine": provider_label,
             "voice_id": engine.voice_id,
             "session_id": session_id
         })
+
+        # Send initial prompt so Gemini starts the interview with voice
+        if system_prompt and provider_label == 'gemini':
+            try:
+                intro_text = "Please introduce yourself as the interviewer and begin the interview. Greet the candidate and ask your first question."
+                if session_manager:
+                    intro = session_manager.get_interviewer_introduction()
+                    if intro:
+                        intro_text = f"Say this to the candidate as your opening: {intro}"
+                if hasattr(nova_session, "send_realtime_text"):
+                    await nova_session.send_realtime_text(intro_text)
+                elif hasattr(nova_session, "_live_session") and nova_session._live_session:
+                    await nova_session._live_session.send_realtime_input(text=intro_text)
+                logger.info("Sent initial prompt to Gemini Live for voice intro")
+            except Exception as e:
+                logger.warning(f"Could not send initial Gemini prompt: {e}")
 
         try:
             while True:

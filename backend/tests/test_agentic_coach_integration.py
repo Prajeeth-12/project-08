@@ -13,10 +13,12 @@ import logging
 from unittest.mock import Mock, AsyncMock, patch
 from typing import Dict, Any, List
 
+from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from backend.agents.agentic_coach import AgenticCoachAgent
 from backend.services.llm_service import LLMService
 from backend.services.search_service import SearchService, Resource
 from backend.utils.event_bus import EventBus
+import json
 
 
 class TestAgenticCoachIntegration:
@@ -26,8 +28,29 @@ class TestAgenticCoachIntegration:
     def mock_llm_service(self):
         """Mock LLM service."""
         mock_service = Mock(spec=LLMService)
-        mock_llm = Mock()
-        mock_service.get_llm.return_value = mock_llm
+        json_resp = json.dumps({
+            "score": 7,
+            "strengths": ["Understands basic bubble sort concept"],
+            "weaknesses": ["Lacks algorithmic time complexity depth"],
+            "feedback": "Consider discussing time and space complexity tradeoffs.",
+            "patterns_tendencies": "Strong high-level overview, needs more technical precision.",
+            "improvement_focus_areas": ["Algorithms", "System Architecture"],
+            "recommended_resources": [
+                {
+                    "title": "Interactive Algorithm Visualizations",
+                    "url": "https://visualgo.net/",
+                    "description": "Visual learning tool for algorithms and data structures.",
+                    "resource_type": "interactive"
+                },
+                {
+                    "title": "Algorithm Design Manual - Free Chapters",
+                    "url": "https://www.algorithm-archive.org/",
+                    "description": "Free comprehensive guide to algorithm design and analysis.",
+                    "resource_type": "tutorial"
+                }
+            ]
+        })
+        mock_service.get_llm.return_value = FakeListChatModel(responses=[json_resp] * 10)
         return mock_service
     
     @pytest.fixture
@@ -78,24 +101,15 @@ class TestAgenticCoachIntegration:
         """Create an agentic coach with mocked services."""
         logger = logging.getLogger("test")
         
-        with patch('backend.agents.agentic_coach.create_react_agent') as mock_create_agent:
-            # Mock the agentic coach's agent executor
-            mock_executor = Mock()
-            mock_create_agent.return_value = mock_executor
-            
-            coach = AgenticCoachAgent(
-                llm_service=mock_llm_service,
-                search_service=mock_search_service,
-                event_bus=event_bus,
-                logger=logger,
-                resume_content="Software Engineer with 4 years experience in full-stack web development. Proficient in Python, JavaScript, and React.",
-                job_description="We're looking for a senior engineer with strong algorithmic thinking and system design skills."
-            )
-            
-            # Set up the mock executor to return realistic coaching responses
-            self._setup_realistic_coach_responses(mock_executor)
-            
-            return coach
+        coach = AgenticCoachAgent(
+            llm_service=mock_llm_service,
+            search_service=mock_search_service,
+            event_bus=event_bus,
+            logger=logger,
+            resume_content="Software Engineer with 4 years experience in full-stack web development. Proficient in Python, JavaScript, and React.",
+            job_description="We're looking for a senior engineer with strong algorithmic thinking and system design skills."
+        )
+        return coach
     
     def _setup_realistic_coach_responses(self, mock_executor):
         """Set up realistic responses for the agentic coach."""

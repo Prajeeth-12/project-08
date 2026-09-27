@@ -71,37 +71,43 @@ PROFICIENCY_LEVEL_TERMS = {
 FALLBACK_PLATFORMS = [
     {
         "title_template": "Free {skill} Course on freeCodeCamp",
-        "url_template": "https://www.freecodecamp.org/learn",
+        "url_template": "https://www.freecodecamp.org/news/search/?query={skill_tag}",
         "description_template": "Learn {skill} with free, hands-on coding tutorials and projects.",
         "type": "course"
     },
     {
         "title_template": "{skill} Documentation and Tutorials",
-        "url_template": "https://developer.mozilla.org/en-US/",
+        "url_template": "https://developer.mozilla.org/en-US/search?q={skill_tag}",
         "description_template": "Comprehensive {skill} documentation and learning resources from Mozilla Developer Network.",
         "type": "documentation"
     },
     {
         "title_template": "{skill} Learning Path on GitHub",
-        "url_template": "https://github.com/topics/learning-resources",
+        "url_template": "https://github.com/topics/{skill_tag}",
         "description_template": "Open source {skill} learning materials, projects, and examples on GitHub.",
         "type": "tutorial"
     },
     {
         "title_template": "Interactive {skill} Tutorials",
-        "url_template": "https://www.codecademy.com/catalog",
+        "url_template": "https://www.codecademy.com/search?query={skill_tag}",
         "description_template": "Interactive coding lessons and exercises for learning {skill} at {proficiency_level} level.",
         "type": "interactive"
     },
     {
         "title_template": "{skill} Community on Reddit",
-        "url_template": "https://www.reddit.com/r/learnprogramming/",
+        "url_template": "https://www.reddit.com/r/learnprogramming/search/?q={skill_tag}",
         "description_template": "Active community discussions, resources, and help for learning {skill}.",
         "type": "community"
     },
     {
+        "title_template": "{skill} Video Tutorials on YouTube",
+        "url_template": "https://www.youtube.com/results?search_query={skill_tag}+tutorial",
+        "description_template": "Curated video lessons and step-by-step walkthroughs for learning {skill}.",
+        "type": "video"
+    },
+    {
         "title_template": "Khan Academy {skill} Course",
-        "url_template": "https://www.khanacademy.org/computing",
+        "url_template": "https://www.khanacademy.org/search?page_search_query={skill_tag}",
         "description_template": "Free educational content for learning {skill} fundamentals with visual explanations.",
         "type": "course"
     }

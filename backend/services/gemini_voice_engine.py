@@ -12,6 +12,11 @@ import base64
 import asyncio
 import logging
 from typing import Dict, Any, Optional, Callable, Awaitable
+from dotenv import load_dotenv
+
+# Ensure environment variables are loaded
+_env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+load_dotenv(dotenv_path=_env_path) if os.path.exists(_env_path) else load_dotenv()
 
 from google import genai
 from google.genai import types
@@ -20,9 +25,17 @@ from backend.config import get_logger
 
 logger = get_logger("GeminiVoiceEngine")
 
-GEMINI_VOICE_API_KEY = os.getenv("GEMINI_VOICE_API_KEY", "")
-GEMINI_VOICE_MODEL = os.getenv("GEMINI_VOICE_MODEL", "gemini-3.8-live")
-GEMINI_VOICE_NAME = os.getenv("GEMINI_VOICE_NAME", "Aoede")
+
+def _get_gemini_voice_api_key() -> str:
+    return os.getenv("GEMINI_VOICE_API_KEY", "")
+
+
+def _get_gemini_voice_model() -> str:
+    return os.getenv("GEMINI_VOICE_MODEL", "gemini-3.8-live")
+
+
+def _get_gemini_voice_name() -> str:
+    return os.getenv("GEMINI_VOICE_NAME", "Aoede")
 
 
 class GeminiVoiceSession:
@@ -47,9 +60,9 @@ class GeminiVoiceSession:
     ):
         self.session_id = session_id
         self.system_prompt = system_prompt
-        self.voice_name = voice_name or GEMINI_VOICE_NAME
-        self.model = model or GEMINI_VOICE_MODEL
-        self.api_key = api_key or GEMINI_VOICE_API_KEY
+        self.voice_name = voice_name or _get_gemini_voice_name()
+        self.model = model or _get_gemini_voice_model()
+        self.api_key = api_key or _get_gemini_voice_api_key()
 
         self.on_audio = on_audio
         self.on_transcript = on_transcript
@@ -78,7 +91,7 @@ class GeminiVoiceSession:
             self._client = genai.Client(api_key=self.api_key)
 
             config = types.LiveConnectConfig(
-                response_modalities=["AUDIO", "TEXT"],
+                response_modalities=["AUDIO"],
                 system_instruction=types.Content(
                     parts=[types.Part(text=self.system_prompt)]
                 ) if self.system_prompt else None,
@@ -93,10 +106,11 @@ class GeminiVoiceSession:
                 output_audio_transcription=types.AudioTranscriptionConfig(),
             )
 
-            self._live_session = await self._client.aio.live.connect(
+            self._ctx_manager = self._client.aio.live.connect(
                 model=self.model,
                 config=config
             )
+            self._live_session = await self._ctx_manager.__aenter__()
 
             self.is_connected = True
             self._receive_task = asyncio.create_task(self._receive_loop())
@@ -150,17 +164,31 @@ class GeminiVoiceSession:
                         if text and self.on_transcript:
                             await self.on_transcript(text, "assistant", False)
 
-                # --- Input transcription (what the user said) ---
+                # --- Interim input transcription (streaming what the user is saying) ---
+                interim_tx = getattr(server_content, "interim_input_transcription", None)
+                if interim_tx:
+                    text = getattr(interim_tx, "text", "") or ""
+                    if not text and hasattr(interim_tx, "parts") and interim_tx.parts:
+                        text = " ".join([getattr(p, "text", "") for p in interim_tx.parts if getattr(p, "text", None)])
+                    if text and self.on_transcript:
+                        await self.on_transcript(text, "user", False)
+
+                # --- Final input transcription (what the user said) ---
                 input_tx = getattr(server_content, "input_transcription", None)
                 if input_tx:
-                    text = getattr(input_tx, "text", "")
+                    text = getattr(input_tx, "text", "") or ""
+                    if not text and hasattr(input_tx, "parts") and input_tx.parts:
+                        text = " ".join([getattr(p, "text", "") for p in input_tx.parts if getattr(p, "text", None)])
                     if text and self.on_transcript:
+                        logger.info(f"Candidate voice transcribed (final): '{text}'")
                         await self.on_transcript(text, "user", True)
 
                 # --- Output transcription (final text of what the model said) ---
                 output_tx = getattr(server_content, "output_transcription", None)
                 if output_tx:
-                    text = getattr(output_tx, "text", "")
+                    text = getattr(output_tx, "text", "") or ""
+                    if not text and hasattr(output_tx, "parts") and output_tx.parts:
+                        text = " ".join([getattr(p, "text", "") for p in output_tx.parts if getattr(p, "text", None)])
                     if text and self.on_transcript:
                         await self.on_transcript(text, "assistant", True)
 
@@ -189,6 +217,15 @@ class GeminiVoiceSession:
         except Exception as e:
             logger.error(f"Error sending audio to Gemini Live: {e}")
 
+    async def send_realtime_text(self, text: str):
+        """Send a text instruction/prompt to Gemini Live to trigger voice responses."""
+        if not self.is_connected or self.is_closing or not self._live_session:
+            return
+        try:
+            await self._live_session.send_realtime_input(text=text)
+        except Exception as e:
+            logger.error(f"Error sending realtime text to Gemini Live: {e}")
+
     async def renew_connection(self):
         """Gemini Live manages its own connection; no-op."""
         logger.debug("renew_connection called on Gemini provider (no-op)")
@@ -203,10 +240,14 @@ class GeminiVoiceSession:
 
         if self._live_session:
             try:
-                await self._live_session.close()
+                if hasattr(self, '_ctx_manager') and self._ctx_manager:
+                    await self._ctx_manager.__aexit__(None, None, None)
+                else:
+                    await self._live_session.close()
             except Exception:
                 pass
             self._live_session = None
+            self._ctx_manager = None
 
         logger.info(f"Gemini Live session stopped: {self.session_id}")
 
@@ -219,11 +260,17 @@ class GeminiVoiceEngine:
 
     def __init__(self):
         self._active_sessions: Dict[str, GeminiVoiceSession] = {}
-        self.model = GEMINI_VOICE_MODEL
-        self.voice_id = GEMINI_VOICE_NAME
+
+    @property
+    def model(self) -> str:
+        return _get_gemini_voice_model()
+
+    @property
+    def voice_id(self) -> str:
+        return _get_gemini_voice_name()
 
     def is_configured(self) -> bool:
-        key = os.getenv("GEMINI_VOICE_API_KEY", GEMINI_VOICE_API_KEY)
+        key = _get_gemini_voice_api_key()
         return bool(key and not key.startswith("your_"))
 
     def get_status(self) -> Dict[str, Any]:

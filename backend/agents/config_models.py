@@ -20,7 +20,7 @@ class SessionConfig(BaseModel):
     Configuration for a single interview session.
     Used by agents to understand the context and parameters of the interview.
     """
-    job_role: str = "General Role"
+    j   ob_role: str = "General Role"
     job_description: Optional[str] = None
     resume_content: Optional[str] = None
     style: InterviewStyle = InterviewStyle.FORMAL

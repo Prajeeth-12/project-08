@@ -49,10 +49,29 @@ def create_session_logger(name: str, session_id: Optional[str] = None,
 
 def get_environment_info() -> Dict[str, Any]:
     """
-    Get current environment diagnostic information including Nova Sonic parameters.
+    Get current environment diagnostic information including voice engine parameters.
     """
     is_azure = os.environ.get("WEBSITES_PORT") is not None
+    voice_provider = os.getenv("VOICE_PROVIDER", "nova").lower()
     has_aws_keys = bool(os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY"))
+    has_gemini_key = bool(os.getenv("GEMINI_VOICE_API_KEY") and not os.getenv("GEMINI_VOICE_API_KEY", "").startswith("your_"))
+
+    if voice_provider == "gemini":
+        voice_info = {
+            "primary": "google.gemini-live",
+            "model_id": os.getenv("GEMINI_VOICE_MODEL", "gemini-3.8-live"),
+            "voice_id": os.getenv("GEMINI_VOICE_NAME", "Aoede"),
+            "region": "global",
+            "configured": has_gemini_key
+        }
+    else:
+        voice_info = {
+            "primary": "amazon.nova-2-sonic-v1:0",
+            "model_id": os.getenv("NOVA_SONIC_MODEL_ID", "amazon.nova-2-sonic-v1:0"),
+            "voice_id": os.getenv("NOVA_SONIC_VOICE_ID", "arjun"),
+            "region": os.getenv("AWS_REGION", "us-east-1"),
+            "configured": has_aws_keys
+        }
 
     return {
         "is_azure": is_azure,
@@ -60,13 +79,8 @@ def get_environment_info() -> Dict[str, Any]:
         "python_version": sys.version.split()[0],
         "has_aws_region": bool(os.getenv("AWS_REGION")),
         "has_aws_keys": has_aws_keys,
-        "voice_engine": {
-            "primary": "amazon.nova-2-sonic-v1:0",
-            "model_id": NOVA_SONIC_MODEL_ID,
-            "voice_id": NOVA_SONIC_VOICE_ID,
-            "region": AWS_REGION,
-            "configured": has_aws_keys
-        }
+        "voice_provider": voice_provider,
+        "voice_engine": voice_info
     }
 
 

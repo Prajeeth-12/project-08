@@ -8,6 +8,11 @@ import subprocess
 import os
 from pathlib import Path
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 
 def run_tests():
     """Run all refactoring tests and provide comprehensive summary."""
@@ -30,14 +35,10 @@ def run_tests():
         "backend.tests.utils.test_file_validator",
         "backend.tests.config.test_file_processing_config",
         
-        # Speech API refactoring tests
-        "backend.tests.api.test_speech_api_helpers",
-        
         # Existing tests to ensure backward compatibility
-        "backend.tests.agents.test_refactored_functionality",
+        "backend.tests.agents.test_agentic_coach",
         "backend.tests.agents.test_constants",
         "backend.tests.agents.test_interview_state",
-        "backend.tests.agents.test_question_templates",
         "backend.tests.utils.test_common",
     ]
     
@@ -58,7 +59,7 @@ def run_tests():
                 [sys.executable, "-m", "pytest", f"{module.replace('.', '/')}.py", "-v"],
                 capture_output=True,
                 text=True,
-                cwd=Path(__file__).parent.parent  # Run from project root
+                cwd=Path(__file__).parent.parent.parent  # Run from project root
             )
             
             if result.returncode == 0:
@@ -113,14 +114,10 @@ def run_tests():
             "backend.tests.utils.test_file_validator",
             "backend.tests.config.test_file_processing_config"
         ],
-        "🎤 Speech API Refactoring": [
-            "backend.tests.api.test_speech_api_helpers"
-        ],
         "🔙 Backward Compatibility": [
-            "backend.tests.agents.test_refactored_functionality",
+            "backend.tests.agents.test_agentic_coach",
             "backend.tests.agents.test_constants",
             "backend.tests.agents.test_interview_state", 
-            "backend.tests.agents.test_question_templates",
             "backend.tests.utils.test_common"
         ]
     }

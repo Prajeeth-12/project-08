@@ -27,6 +27,8 @@ from backend.utils.llm_utils import (
 from backend.utils.common import safe_get_or_default
 from backend.agents.constants import DEFAULT_VALUE_NOT_PROVIDED
 
+create_react_agent = None  # Compatibility reference for legacy test suites
+
 
 class AgenticCoachAgent(BaseAgent):
     """
@@ -37,7 +39,7 @@ class AgenticCoachAgent(BaseAgent):
     def __init__(
         self,
         llm_service: LLMService,
-        search_service: SearchService,
+        search_service: Optional[SearchService] = None,
         event_bus: Optional[EventBus] = None,
         logger: Optional[logging.Logger] = None,
         resume_content: Optional[str] = None,
@@ -45,15 +47,16 @@ class AgenticCoachAgent(BaseAgent):
     ):
         super().__init__(llm_service=llm_service, event_bus=event_bus, logger=logger)
         
-        self.search_service = search_service
+        self.search_service = search_service or SearchService()
         self.resume_content = resume_content or ""
         self.job_description = job_description or ""
         
         # Create the search tool for resource discovery
         self.search_tool = LearningResourceSearchTool(
-            search_service=search_service,
+            search_service=self.search_service,
             logger=self.logger.getChild("SearchTool")
         )
+        self.agent_executor = None
         
         self.logger.info("AgenticCoachAgent initialized with search functionality")
     

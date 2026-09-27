@@ -232,11 +232,33 @@ class AgentSessionManager:
         self._get_interviewer().record_turn("user", message)
         self._generate_coaching_feedback(user_msg)
 
+        # Generate real interviewer response via LLM (text-path fallback)
+        try:
+            from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+            llm = self.llm_service.get_llm()
+            system_prompt = self._get_interviewer().get_system_prompt()
+            lc_messages = [SystemMessage(content=system_prompt)]
+            for msg in self.conversation_history:
+                role = msg.get("role", "user")
+                text = msg.get("content", "")
+                if isinstance(text, dict):
+                    text = str(text)
+                if role == "user":
+                    lc_messages.append(HumanMessage(content=text))
+                elif role == "assistant" and msg.get("agent") == "interviewer":
+                    lc_messages.append(AIMessage(content=text))
+            ai_response = llm.invoke(lc_messages)
+            ai_text = ai_response.content if hasattr(ai_response, "content") else str(ai_response)
+        except Exception as e:
+            self.logger.error(f"Text-path LLM call failed: {e}")
+            ai_text = "I appreciate your response. Could you tell me more about your experience?"
+
+        self._get_interviewer().record_turn("assistant", ai_text)
         response_data = {
             "role": "assistant",
             "agent": "interviewer",
-            "content": "Voice interview in progress. Please use the microphone to continue the conversation.",
-            "response_type": "status",
+            "content": ai_text,
+            "response_type": "question",
             "timestamp": datetime.utcnow().isoformat(),
             "metadata": self._get_interviewer().get_state_summary()
         }
