@@ -131,6 +131,7 @@ class GeminiVoiceSession:
         if not self._live_session:
             return
 
+        audio_chunk_count = 0
         try:
             async for msg in self._live_session.receive():
                 if self.is_closing:
@@ -142,6 +143,7 @@ class GeminiVoiceSession:
 
                 # --- Interruption (barge-in) ---
                 if getattr(server_content, "interrupted", False):
+                    logger.info("Gemini Live: interrupted (barge-in)")
                     if self.on_barge_in:
                         await self.on_barge_in()
                     continue
@@ -155,6 +157,9 @@ class GeminiVoiceSession:
                         # Audio data
                         inline_data = getattr(part, "inline_data", None)
                         if inline_data and getattr(inline_data, "data", None):
+                            audio_chunk_count += 1
+                            if audio_chunk_count == 1:
+                                logger.info("🔊 Gemini Live: first audio chunk received — streaming to browser")
                             audio_b64 = base64.b64encode(inline_data.data).decode("ascii")
                             if self.on_audio:
                                 await self.on_audio(audio_b64)
@@ -194,6 +199,8 @@ class GeminiVoiceSession:
 
                 # --- Turn complete ---
                 if turn_complete:
+                    logger.info(f"🔄 Gemini Live: turn complete (sent {audio_chunk_count} audio chunks)")
+                    audio_chunk_count = 0
                     if self.on_turn_ended:
                         await self.on_turn_ended("END_TURN")
 
@@ -218,13 +225,23 @@ class GeminiVoiceSession:
             logger.error(f"Error sending audio to Gemini Live: {e}")
 
     async def send_realtime_text(self, text: str):
-        """Send a text instruction/prompt to Gemini Live to trigger voice responses."""
+        """Send a text turn to Gemini Live and signal turn complete so it generates audio."""
         if not self.is_connected or self.is_closing or not self._live_session:
             return
         try:
-            await self._live_session.send_realtime_input(text=text)
+            # Must use send_client_content with turn_complete=True for text —
+            # send_realtime_input(text=...) is for streaming and never signals end-of-turn,
+            # so Gemini waits indefinitely and never generates a response.
+            await self._live_session.send_client_content(
+                turns=types.Content(
+                    role="user",
+                    parts=[types.Part(text=text)]
+                ),
+                turn_complete=True
+            )
+            logger.info(f"Sent text turn to Gemini Live ({len(text)} chars)")
         except Exception as e:
-            logger.error(f"Error sending realtime text to Gemini Live: {e}")
+            logger.error(f"Error sending text to Gemini Live: {e}")
 
     async def renew_connection(self):
         """Gemini Live manages its own connection; no-op."""
