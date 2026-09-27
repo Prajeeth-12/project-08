@@ -1,8 +1,6 @@
 /**
- * High-performance Web Audio API PCM streaming player for Amazon Nova 2 Sonic.
- * Plays 24kHz 16-bit linear PCM audio chunks seamlessly with instant barge-in cutoff.
- * 
- * Authored strictly from our team's engineering perspective for Project 08.
+ * Web Audio API PCM streaming player for Gemini Live / Nova Sonic.
+ * Plays 24kHz 16-bit linear PCM chunks seamlessly with barge-in support.
  */
 
 export class StreamingAudioPlayer {
@@ -11,75 +9,76 @@ export class StreamingAudioPlayer {
   private isPlaying: boolean = false;
   private activeSources: AudioBufferSourceNode[] = [];
   private onPlaybackStateChange?: (isPlaying: boolean) => void;
+  // Debounce timer so brief gaps between chunks don't fire "stopped" prematurely
+  private endDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly END_DEBOUNCE_MS = 300;
 
   constructor(onPlaybackStateChange?: (isPlaying: boolean) => void) {
     this.onPlaybackStateChange = onPlaybackStateChange;
-    // Pre-bind unlock listeners for seamless browser autoplay compliance
-    this.setupUnlockListeners();
-  }
-
-  private setupUnlockListeners() {
-    const unlock = () => {
-      this.unlock();
-      window.removeEventListener('click', unlock);
-      window.removeEventListener('touchstart', unlock);
-      window.removeEventListener('keydown', unlock);
-    };
-    window.addEventListener('click', unlock, { once: true, passive: true });
-    window.addEventListener('touchstart', unlock, { once: true, passive: true });
-    window.addEventListener('keydown', unlock, { once: true, passive: true });
   }
 
   public async unlock(): Promise<void> {
     try {
-      this.initContext();
-      if (this.audioContext && this.audioContext.state === 'suspended') {
+      if (!this.audioContext || this.audioContext.state === 'closed') {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        this.audioContext = new AudioCtx();
+        this.nextPlayTime = this.audioContext.currentTime;
+      }
+      if (this.audioContext.state === 'suspended') {
         await this.audioContext.resume();
-        console.log('🔊 StreamingAudioPlayer AudioContext resumed successfully (State:', this.audioContext.state, ')');
+        console.log('🔊 AudioContext resumed (state:', this.audioContext.state, ')');
       }
     } catch (e) {
-      console.warn('Could not resume AudioContext on user interaction:', e);
+      console.warn('Could not resume AudioContext:', e);
     }
   }
 
-  private initContext() {
+  private async ensureRunning(): Promise<boolean> {
     if (!this.audioContext || this.audioContext.state === 'closed') {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      // Do NOT force sampleRate to 24000 on AudioContext constructor — let it use hardware rate
-      // createBuffer(1, length, 24000) handles the 24kHz resample to hardware cleanly
-      this.audioContext = new AudioCtx();
-      this.nextPlayTime = this.audioContext.currentTime;
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        this.audioContext = new AudioCtx();
+        this.nextPlayTime = this.audioContext.currentTime;
+      } catch (e) {
+        console.error('Failed to create AudioContext:', e);
+        return false;
+      }
     }
     if (this.audioContext.state === 'suspended') {
-      this.audioContext.resume().catch(() => {});
+      try {
+        await this.audioContext.resume();
+      } catch (e) {
+        console.warn('AudioContext resume failed:', e);
+        return false;
+      }
     }
+    return this.audioContext.state === 'running';
   }
 
   async playChunk(base64Data: string) {
+    // Cancel any pending "playback ended" notification — more chunks are arriving
+    if (this.endDebounceTimer !== null) {
+      clearTimeout(this.endDebounceTimer);
+      this.endDebounceTimer = null;
+    }
+
     try {
-      this.initContext();
-      if (!this.audioContext) return;
+      const ready = await this.ensureRunning();
+      if (!ready || !this.audioContext) return;
 
-      if (this.audioContext.state === 'suspended') {
-        await this.audioContext.resume().catch(() => {});
-      }
-
-      // Decode base64 to 16-bit PCM
+      // Decode base64 → Int16 PCM → Float32
       const binaryString = atob(base64Data);
-      const len = binaryString.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
       const pcm16 = new Int16Array(bytes.buffer);
-
-      // Convert Int16 [-32768, 32767] to Float32 [-1.0, 1.0]
       const float32 = new Float32Array(pcm16.length);
       for (let i = 0; i < pcm16.length; i++) {
         float32[i] = pcm16[i] / 32768.0;
       }
 
-      // Gemini Live and Nova 2 Sonic both output 24kHz PCM mono audio
+      // Gemini Live outputs 24kHz mono PCM
       const audioBuffer = this.audioContext.createBuffer(1, float32.length, 24000);
       audioBuffer.getChannelData(0).set(float32);
 
@@ -87,54 +86,60 @@ export class StreamingAudioPlayer {
       source.buffer = audioBuffer;
       source.connect(this.audioContext.destination);
 
-      const currentTime = this.audioContext.currentTime;
-      const startTime = Math.max(currentTime, this.nextPlayTime);
+      const now = this.audioContext.currentTime;
+      const startTime = Math.max(now, this.nextPlayTime);
       source.start(startTime);
       this.nextPlayTime = startTime + audioBuffer.duration;
 
       this.activeSources.push(source);
+
       if (!this.isPlaying) {
         this.isPlaying = true;
         this.onPlaybackStateChange?.(true);
       }
 
       source.onended = () => {
-        const index = this.activeSources.indexOf(source);
-        if (index !== -1) {
-          this.activeSources.splice(index, 1);
-        }
+        const idx = this.activeSources.indexOf(source);
+        if (idx !== -1) this.activeSources.splice(idx, 1);
+
+        // Only signal "stopped" after debounce — avoids false stops between chunks
         if (this.activeSources.length === 0) {
-          this.isPlaying = false;
-          this.onPlaybackStateChange?.(false);
+          this.endDebounceTimer = setTimeout(() => {
+            if (this.activeSources.length === 0) {
+              this.isPlaying = false;
+              this.onPlaybackStateChange?.(false);
+            }
+            this.endDebounceTimer = null;
+          }, this.END_DEBOUNCE_MS);
         }
       };
     } catch (e) {
-      console.error('Error playing streaming PCM audio chunk:', e);
+      console.error('Error playing audio chunk:', e);
     }
   }
 
   stop() {
-    // Interruption / barge-in: stop all scheduled sources immediately
+    if (this.endDebounceTimer !== null) {
+      clearTimeout(this.endDebounceTimer);
+      this.endDebounceTimer = null;
+    }
     for (const source of this.activeSources) {
-      try {
-        source.stop();
-        source.disconnect();
-      } catch (e) {
-        // Source may already have ended
-      }
+      try { source.stop(); source.disconnect(); } catch (_) {}
     }
     this.activeSources = [];
     if (this.audioContext) {
       this.nextPlayTime = this.audioContext.currentTime;
     }
-    this.isPlaying = false;
-    this.onPlaybackStateChange?.(false);
+    if (this.isPlaying) {
+      this.isPlaying = false;
+      this.onPlaybackStateChange?.(false);
+    }
   }
 
   close() {
     this.stop();
     if (this.audioContext && this.audioContext.state !== 'closed') {
-      this.audioContext.close();
+      this.audioContext.close().catch(() => {});
       this.audioContext = null;
     }
   }

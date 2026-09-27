@@ -8,7 +8,7 @@ import { SessionWarningDialog } from './SessionWarningDialog';
 import { useVoiceFirstInterview } from '../hooks/useVoiceFirstInterview';
 import { Message, CoachFeedbackState } from '@/hooks/useInterviewSession';
 import { Button } from '@/components/ui/button';
-import { Mic, MessageSquare, Clock, Keyboard, Send, AlertTriangle } from 'lucide-react';
+import { MessageSquare, Clock, Keyboard, Send, AlertTriangle } from 'lucide-react';
 
 interface InterviewSessionProps {
   interviewDurationMinutes?: number;
@@ -181,20 +181,6 @@ const InterviewSession: React.FC<InterviewSessionProps> = ({
 
       {/* ── Control Dock ── */}
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 p-1.5 rounded-2xl bg-white border border-gray-200 shadow-[0_4px_20px_rgba(0,0,0,0.08)]">
-        {/* Mic status indicator — always on, not toggleable */}
-        <div
-          className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-200 ${
-            turnState === 'ai'
-              ? 'bg-amber-100 text-amber-600 border border-amber-300'
-              : isListening
-              ? 'bg-[#DC2626] text-white shadow-[0_2px_10px_rgba(220,38,38,0.3)]'
-              : 'bg-gray-100 text-gray-400 border border-gray-200'
-          }`}
-          title={turnState === 'ai' ? "AI is speaking..." : isListening ? "Listening..." : "Connecting..."}
-        >
-          <Mic size={18} />
-        </div>
-
         <button
           onClick={() => setTranscriptOpen(!transcriptOpen)}
           title="Toggle transcript"

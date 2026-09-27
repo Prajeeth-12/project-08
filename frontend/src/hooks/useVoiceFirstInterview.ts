@@ -68,6 +68,7 @@ export function useVoiceFirstInterview(
   const micStreamRef = useRef<MediaStream | null>(null);
   const audioPlayerRef = useRef<StreamingAudioPlayer | null>(null);
   const bargedInRef = useRef(false);
+  const aiTurnActiveRef = useRef(false); // tracks whether we're mid-AI-turn for transcript clear
 
   const accumulatedTranscriptRef = useRef(accumulatedTranscript);
   const currentInterimTextRef = useRef(currentInterimText);
@@ -139,13 +140,16 @@ export function useVoiceFirstInterview(
       // Init streaming audio player for Gemini Live audio chunks
       if (!audioPlayerRef.current) {
         audioPlayerRef.current = new StreamingAudioPlayer((isPlaying) => {
+          // Only update audio playback state — turnState is controlled by onTurnEnded
           recognitionRef.current?.setAiSpeaking(isPlaying);
           setVoiceState(prev => ({
             ...prev,
             audioPlaying: isPlaying,
             audioState: isPlaying ? 'playing' : 'idle',
-            turnState: isPlaying ? 'ai' : 'user',
           }));
+          if (!isPlaying) {
+            aiTurnActiveRef.current = false;
+          }
         });
       }
       await audioPlayerRef.current.unlock();
@@ -227,24 +231,30 @@ export function useVoiceFirstInterview(
         },
 
         onAudioChunk: (base64Audio) => {
-          // After barge-in, drop stale audio until Gemini acknowledges the interruption
+          // Drop stale chunks after barge-in until Gemini acknowledges interruption
           if (bargedInRef.current) return;
 
           recognitionRef.current?.setAiSpeaking(true);
           audioPlayerRef.current?.playChunk(base64Audio);
-          setVoiceState(prev => ({
-            ...prev,
-            audioState: 'playing',
-            turnState: 'ai',
-            audioPlaying: true,
-          }));
-          setAccumulatedTranscript('');
-          setCurrentInterimText('');
+
+          // Only on the first chunk of a new AI turn: clear transcript + set state
+          if (!aiTurnActiveRef.current) {
+            aiTurnActiveRef.current = true;
+            setAccumulatedTranscript('');
+            setCurrentInterimText('');
+            setVoiceState(prev => ({
+              ...prev,
+              audioState: 'playing',
+              turnState: 'ai',
+              audioPlaying: true,
+            }));
+          }
         },
 
         onBargeIn: () => {
           console.log('🛑 Barge-in: user interrupted AI');
           bargedInRef.current = true;
+          aiTurnActiveRef.current = false;
           recognitionRef.current?.setAiSpeaking(false);
           audioPlayerRef.current?.stop();
           setVoiceState(prev => ({
@@ -258,6 +268,7 @@ export function useVoiceFirstInterview(
         onTurnEnded: (stopReason) => {
           console.log('🔄 AI turn ended:', stopReason, '→ mic open for user');
           bargedInRef.current = false;
+          aiTurnActiveRef.current = false;
           recognitionRef.current?.setAiSpeaking(false);
           setVoiceState(prev => ({
             ...prev,
