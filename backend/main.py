@@ -65,6 +65,7 @@ from backend.middleware import SessionSavingMiddleware
 
 # Team-B feature routers (coding platform, exam portal, resume, rubric)
 try:
+    from backend.api.code_execution_api import create_code_execution_api
     from backend.api.execution import router as execution_router
     from backend.api.probing import router as probing_router
     from backend.api.code_review import router as code_review_router
@@ -203,6 +204,7 @@ logger.info("File Processing API routes registered")
 
 # Register team-B platform routers
 if _TEAM_B_ROUTES_AVAILABLE:
+    create_code_execution_api(app)  # Santhosh's full Judge0 impl (/api/code/*)
     app.include_router(auth_b_router)
     app.include_router(drafts_router)
     app.include_router(execution_router)
