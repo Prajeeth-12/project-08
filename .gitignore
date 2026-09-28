@@ -6,6 +6,7 @@ dist/
 build/
 .venv/
 venv/
+venv*/
 env/
 
 # Node / Frontend

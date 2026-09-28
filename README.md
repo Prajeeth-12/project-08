@@ -56,6 +56,17 @@ SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_KEY=your_supabase_service_role_key_here
 SUPABASE_JWT_SECRET=your_supabase_jwt_secret_here
 USE_MOCK_AUTH=true
+
+
+# Judge0 Configuration
+
+JUDGE0_URL=http://3.109.60.65:2359
+JUDGE0_AUTH_HEADER=X-Auth-Token
+JUDGE0_AUTH_TOKEN=Secret_key
+
+# Judge0 Request Settings
+JUDGE0_TIMEOUT=30
+
 ```
 
 ---
@@ -84,3 +95,5 @@ python test_voice_engine.py
 # Verify backend health diagnostics
 curl http://127.0.0.1:8000/health
 ```
+
+

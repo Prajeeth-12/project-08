@@ -19,7 +19,7 @@ from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-
+from backend.api.code_execution_api import create_code_execution_api
 # Pydantic imports
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
@@ -216,8 +216,6 @@ if _TEAM_B_ROUTES_AVAILABLE:
     app.include_router(exams_router)
     app.include_router(evaluations_router)
     logger.info("Team-B platform routes registered (coding, exams, resume, rubric)")
-
-
 
 api_key = os.environ.get("GOOGLE_API_KEY", "MISSING_API_KEY")
 
