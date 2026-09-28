@@ -61,6 +61,7 @@ from backend.api.agent_api import create_agent_api
 from backend.api.speech_api import create_speech_api
 from backend.api.file_processing_api import create_file_processing_api
 from backend.api.auth_api import create_auth_api
+from backend.api.blueprint_api import create_blueprint_api
 from backend.middleware import SessionSavingMiddleware
 
 # Team-B feature routers (coding platform, exam portal, resume, rubric)
@@ -231,6 +232,9 @@ logger.info("Speech API routes registered")
 
 create_file_processing_api(app)
 logger.info("File Processing API routes registered")
+
+create_blueprint_api(app)
+logger.info("Blueprint API routes registered")
 
 # Register team-B platform routers
 if _TEAM_B_ROUTES_AVAILABLE:

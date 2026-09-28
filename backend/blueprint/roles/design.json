@@ -1,0 +1,9 @@
+{
+  "sections": ["Design Thinking", "User Research", "Visual Design", "Interaction"],
+  "categories": [
+    {"key": "design_thinking", "label": "Design Thinking", "max": 25},
+    {"key": "user_research", "label": "User Research", "max": 25},
+    {"key": "visual_design", "label": "Visual Design", "max": 25},
+    {"key": "interaction", "label": "Interaction Design", "max": 25}
+  ]
+}

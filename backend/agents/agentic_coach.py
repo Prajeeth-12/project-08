@@ -209,8 +209,36 @@ class AgenticCoachAgent(BaseAgent):
                 summary_keys = list(summary.keys()) if isinstance(summary, dict) else []
                 
                 self.logger.info(f"✅ Final summary completed: {len(summary_keys)} sections, {resource_count} resources")
-                self.logger.info(f"📋 Summary sections: {summary_keys}")
-                
+
+                # V2: augment with quantitative eval_engine scores
+                try:
+                    from backend.eval_engine import (
+                        calculate_interview_score, level_for_score,
+                        calculate_readiness, generate_narrative,
+                        generate_prep_list,
+                    )
+                    # Build a minimal InterviewReport-like object from summary + history
+                    class _FakeReport:
+                        def __init__(self):
+                            self.overall_score = summary.get("overall_score", 5.0)
+                            self.strengths = summary.get("strengths", [])
+                            self.weaknesses = summary.get("areas_for_improvement", [])
+                            self.competency_scores = summary.get("competency_scores", {})
+
+                    fake_report = _FakeReport()
+                    rubric_band = level_for_score(fake_report.overall_score)
+                    readiness_score = calculate_readiness(
+                        {},  # verdicts empty until V3 evidence tracking
+                        fake_report.competency_scores,
+                    )
+                    prep_items = generate_prep_list(fake_report)
+                    summary["rubric_band"] = rubric_band
+                    summary["readiness_score"] = readiness_score
+                    summary["prep_list"] = [p.dict() for p in prep_items]
+                    self.logger.info(f"✅ Eval engine augmented: rubric={rubric_band}, readiness={readiness_score}")
+                except Exception as _eval_err:
+                    self.logger.warning(f"Eval engine augmentation skipped: {type(_eval_err).__name__}")
+
                 return summary
                 
             except Exception as e:

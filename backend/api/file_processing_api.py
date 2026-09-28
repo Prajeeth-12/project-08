@@ -1,6 +1,6 @@
 import logging
 import io
-from typing import Dict
+from typing import Dict, Optional
 
 from fastapi import APIRouter, File, UploadFile, HTTPException
 from pydantic import BaseModel
@@ -10,12 +10,25 @@ from backend.utils.file_utils import extract_text_from_pdf, extract_text_from_do
 from backend.utils.file_validator import create_file_validator
 from backend.config.file_processing_config import ERROR_MESSAGES
 
+# V2: structured resume intelligence
+try:
+    from backend.rag import ResumeParser, StructuredCandidateProfile, ResumePreValidator
+    from backend.rag.pre_validator import PreValidationError
+    _RAG_AVAILABLE = True
+except ImportError:
+    _RAG_AVAILABLE = False
+
 logger = get_logger(__name__)
 
 class ResumeUploadResponse(BaseModel):
     filename: str
     resume_text: str
     message: str
+    # V2 structured fields — None when RAG not available
+    skills: Optional[list] = None
+    claims: Optional[list] = None
+    seniority: Optional[str] = None
+    sections: Optional[dict] = None
 
 def create_file_processing_api(app):
     router = APIRouter(prefix="/files", tags=["File Processing"])
@@ -40,13 +53,41 @@ def create_file_processing_api(app):
             # Validate extracted text
             validated_text = file_validator.validate_extracted_text(extracted_text, file.filename)
             
-            logger.info(f"Successfully processed file: {file.filename}")
+            # V2: run structured RAG pipeline if available
+            skills, claims, seniority, sections = None, None, None, None
+            if _RAG_AVAILABLE:
+                try:
+                    validator = ResumePreValidator()
+                    # Injection defense + non-resume rejection
+                    validation = await validator.validate(validated_text)
+                    if not validation.is_resume:
+                        raise HTTPException(status_code=400, detail="Uploaded file does not appear to be a resume.")
+                    if validation.has_injection:
+                        raise HTTPException(status_code=400, detail="Resume content failed security validation.")
+
+                    parser = ResumeParser()
+                    profile: StructuredCandidateProfile = parser.parse(validated_text)
+                    skills = profile.skills
+                    claims = [c.dict() for c in profile.claims]
+                    seniority = profile.seniority
+                    sections = profile.sections
+                    logger.info(f"RAG pipeline: {len(skills)} skills, {len(claims)} claims, seniority={seniority}")
+                except HTTPException:
+                    raise
+                except Exception as e:
+                    logger.warning(f"RAG pipeline failed (non-fatal): {type(e).__name__}")
+
+            logger.info(f"Successfully processed resume file")  # no filename in logs (PII)
             return ResumeUploadResponse(
                 filename=file.filename or "unknown_file",
                 resume_text=validated_text,
-                message="File processed successfully."
+                message="File processed successfully.",
+                skills=skills,
+                claims=claims,
+                seniority=seniority,
+                sections=sections,
             )
-            
+
         except HTTPException:
             # Re-raise HTTP exceptions (from validators)
             raise

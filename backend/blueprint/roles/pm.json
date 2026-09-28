@@ -1,0 +1,9 @@
+{
+  "sections": ["Product Thinking", "Stakeholder Management", "Metrics", "Prioritization"],
+  "categories": [
+    {"key": "product_thinking", "label": "Product Thinking", "max": 25},
+    {"key": "stakeholder_management", "label": "Stakeholder Management", "max": 25},
+    {"key": "metrics", "label": "Metrics & Data", "max": 25},
+    {"key": "prioritization", "label": "Prioritization", "max": 25}
+  ]
+}

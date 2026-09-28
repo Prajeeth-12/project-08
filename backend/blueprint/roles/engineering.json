@@ -1,0 +1,9 @@
+{
+  "sections": ["Backend", "API", "Database", "System Design"],
+  "categories": [
+    {"key": "backend", "label": "Backend Engineering", "max": 25},
+    {"key": "api", "label": "API Design", "max": 25},
+    {"key": "database", "label": "Database & Storage", "max": 25},
+    {"key": "system_design", "label": "System Design", "max": 25}
+  ]
+}
