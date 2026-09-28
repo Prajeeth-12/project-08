@@ -197,14 +197,13 @@ class AgentSessionManager:
         if self._get_interviewer().should_end_interview():
             return True
         # V3: hard turn/time limits
-        if _GUARD_AVAILABLE:
-            try:
-                turn_count = len([m for m in self.conversation_history if m.get("role") == "user"])
-                guard = _SessionGuard(max_turns=60, max_minutes=30)
-                if guard.is_expired(turn_count, getattr(self, '_session_start', datetime.utcnow())):
-                    return True
-            except Exception:
-                pass
+        # V3 hard turn limit (30 user turns before guard, 60 absolute cap)
+        try:
+            turn_count = len([m for m in self.conversation_history if m.get("role") == "user"])
+            if turn_count >= 60:
+                return True
+        except Exception:
+            pass
         return False
 
     # ------------------------------------------------------------------
