@@ -1,12 +1,17 @@
 import asyncio
+import os
 
 from alembic import context
+from dotenv import load_dotenv
 
-from backend.database import Base, DATABASE_URL, engine
-import backend.models
+# Load .env before importing backend modules
+_env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+load_dotenv(dotenv_path=_env_path) if os.path.exists(_env_path) else load_dotenv()
+
+from backend.database import Base, _engine as engine, _db_url as DATABASE_URL
+import backend.models  # registers all model metadata with Base
 
 config = context.config
-
 config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
 
 target_metadata = Base.metadata

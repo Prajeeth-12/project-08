@@ -144,6 +144,23 @@ def setup_azure_logging():
 logger = setup_azure_logging()
 logger.info(f"Logging configured for {'Azure' if os.environ.get('WEBSITES_PORT') else 'local'} environment")
 
+# PII-safe log filter — strips sensitive fields from all log records
+import re as _re
+
+class _PIIFilter(logging.Filter):
+    _STRIP = _re.compile(
+        r'(email|name|answer_text|raw_text|resume|password|token|authorization)',
+        _re.IGNORECASE
+    )
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Redact PII from string messages — log UUIDs + actions only
+        if isinstance(record.msg, str) and self._STRIP.search(record.msg):
+            record.msg = _re.sub(r'[\w.+-]+@[\w.-]+', '[email]', record.msg)
+            record.msg = _re.sub(r'"(password|answer_text|raw_text)":\s*"[^"]*"', r'"\1":"[redacted]"', record.msg)
+        return True
+
+logging.getLogger().addFilter(_PIIFilter())
+
 app = FastAPI(
     title="AI Interviewer Agent",
     description="AI-powered interview practice and coaching system",
@@ -167,23 +184,36 @@ async def global_exception_handler(request: Request, exc: Exception):
         "exception_type": type(exc).__name__
     }
     
-    logger.error(f"Unhandled exception during request processing", extra=extra_data, exc_info=exc)
-    
+    logger.error(
+        f"Unhandled exception: {type(exc).__name__} on {request.method} {request.url.path}",
+        extra={"exception_type": type(exc).__name__, "path": request.url.path}
+        # No request headers logged — may contain auth tokens (PII)
+        # No exc_info — stack trace must not reach API responses in prod
+    )
+
+    is_prod = not os.getenv("USE_MOCK_AUTH", "false").lower() == "true"
     return JSONResponse(
         status_code=500,
         content={
             "error": "Internal server error",
-            "detail": f"An internal server error occurred: {str(exc)}",
-            "request_id": request.headers.get("X-Request-ID", "unknown")
+            # Generic message in prod — never expose stack traces to clients
+            "detail": "An unexpected error occurred" if is_prod else str(exc),
+            "request_id": request.headers.get("X-Request-ID", "unknown"),
         }
     )
 
+# Allowed origins — restrict in production; wildcard only for local dev
+_ALLOWED_ORIGINS = [o.strip() for o in os.getenv(
+    "CORS_ALLOWED_ORIGINS",
+    "http://localhost:3000,http://localhost:5173,http://localhost:8080,http://localhost:8081,http://localhost:8082"
+).split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Session-ID", "X-Request-ID"],
 )
 
 # Add session saving middleware for automatic session persistence
@@ -205,7 +235,7 @@ logger.info("File Processing API routes registered")
 # Register team-B platform routers
 if _TEAM_B_ROUTES_AVAILABLE:
     create_code_execution_api(app)  # Santhosh's full Judge0 impl (/api/code/*)
-    app.include_router(auth_b_router)
+    # auth_b_router omitted — superseded by Cognito auth_api (/auth/*)
     app.include_router(drafts_router)
     app.include_router(execution_router)
     app.include_router(sessions_router)

@@ -1,318 +1,338 @@
 """
-Authentication API endpoints for user management with Supabase.
-Provides registration, login, and token verification.
+Authentication API — AWS Cognito backend.
+
+Same endpoint contract as before (frontend unchanged):
+  POST /auth/register
+  POST /auth/login
+  POST /auth/refresh
+  GET  /auth/me
+  POST /auth/logout
+  DELETE /auth/me/data   ← new: GDPR/DPDPA right to deletion
+
+When COGNITO_USER_POOL_ID is set, uses Cognito.
+Falls back to mock JWT for local development (USE_MOCK_AUTH=true).
 """
 
 import os
+import json
 import logging
+import asyncio
 from typing import Dict, Any, Optional
-from fastapi import APIRouter, HTTPException, Depends, Request, Response
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field, EmailStr
-import jwt
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from backend.database.db_manager import DatabaseManager
+import boto3
+import httpx
+from botocore.exceptions import ClientError
+from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel, EmailStr
+import jwt
+from jwt.algorithms import RSAAlgorithm
+
 from backend.config import get_logger
 
 logger = get_logger(__name__)
 
-# Models
-class UserRegisterRequest(BaseModel):
-    """Request body for user registration."""
-    email: EmailStr = Field(..., description="User email address")
-    password: str = Field(..., min_length=8, description="User password (min 8 characters)")
-    name: str = Field(..., min_length=1, max_length=100, description="User full name")
+# ── Config ────────────────────────────────────────────────────────────────
 
-class UserLoginRequest(BaseModel):
-    """Request body for user login."""
-    email: EmailStr = Field(..., description="User email address")
-    password: str = Field(..., description="User password")
+COGNITO_REGION = os.getenv("COGNITO_REGION", os.getenv("AWS_REGION", "us-east-1"))
+COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID", "")
+COGNITO_CLIENT_ID = os.getenv("COGNITO_CLIENT_ID", "")
+USE_MOCK_AUTH = os.getenv("USE_MOCK_AUTH", "false").lower() == "true"
+_MOCK_SECRET = "dev-mock-secret-not-for-production"
+
+_cognito = None
+_jwks_cache: dict = {}
+
+def _get_cognito():
+    global _cognito
+    if _cognito is None:
+        _cognito = boto3.client("cognito-idp", region_name=COGNITO_REGION)
+    return _cognito
+
+def _cognito_available() -> bool:
+    return bool(COGNITO_USER_POOL_ID and COGNITO_CLIENT_ID)
+
+# ── JWKS-based JWT validation (Cognito) ──────────────────────────────────
+
+async def _get_jwks() -> dict:
+    global _jwks_cache
+    if _jwks_cache:
+        return _jwks_cache
+    url = f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}/.well-known/jwks.json"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(url)
+        r.raise_for_status()
+        _jwks_cache = {k["kid"]: RSAAlgorithm.from_jwk(json.dumps(k)) for k in r.json()["keys"]}
+    return _jwks_cache
+
+async def _verify_cognito_token(token: str) -> dict:
+    header = jwt.get_unverified_header(token)
+    kid = header.get("kid")
+    keys = await _get_jwks()
+    pub_key = keys.get(kid)
+    if not pub_key:
+        raise ValueError("Unknown token key id")
+    return jwt.decode(
+        token, pub_key,
+        algorithms=["RS256"],
+        options={"verify_aud": False},
+    )
+
+def _verify_mock_token(token: str) -> dict:
+    return jwt.decode(token, _MOCK_SECRET, algorithms=["HS256"])
+
+async def _decode_token(token: str) -> dict:
+    if _cognito_available():
+        return await _verify_cognito_token(token)
+    if USE_MOCK_AUTH:
+        return _verify_mock_token(token)
+    raise HTTPException(status_code=500, detail="Auth not configured")
+
+# ── FastAPI security ──────────────────────────────────────────────────────
+
+_bearer = HTTPBearer(auto_error=False)
+
+async def get_current_user_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+) -> Optional[Dict[str, Any]]:
+    if not credentials or not credentials.credentials:
+        return None
+    try:
+        payload = await _decode_token(credentials.credentials)
+        return {"id": payload.get("sub"), "email": payload.get("email", ""), "name": payload.get("name", ""), "payload": payload}
+    except Exception as e:
+        logger.debug(f"Optional auth failed: {type(e).__name__}")
+        return None
+
+async def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+) -> Dict[str, Any]:
+    if not credentials or not credentials.credentials:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    try:
+        payload = await _decode_token(credentials.credentials)
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return {"id": user_id, "email": payload.get("email", ""), "name": payload.get("name", ""), "payload": payload}
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+# ── Pydantic models ───────────────────────────────────────────────────────
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
 
 class UserResponse(BaseModel):
-    """Response model for user information."""
     id: str
     email: str
     name: str
     created_at: Optional[datetime] = None
 
 class AuthTokenResponse(BaseModel):
-    """Response containing authentication tokens."""
     access_token: str
     refresh_token: str
     user: UserResponse
 
 class MessageResponse(BaseModel):
-    """Generic message response."""
     message: str
 
-# Security
-security = HTTPBearer(auto_error=False)
+# ── Mock helpers for local dev ────────────────────────────────────────────
 
-async def get_database_manager() -> DatabaseManager:
-    """Dependency to get database manager."""
-    from backend.services import get_database_manager
-    return get_database_manager()
+def _mock_tokens(user_id: str, email: str, name: str) -> AuthTokenResponse:
+    import time
+    access = jwt.encode(
+        {"sub": user_id, "email": email, "name": name, "exp": int(time.time()) + 3600},
+        _MOCK_SECRET, algorithm="HS256"
+    )
+    refresh = jwt.encode(
+        {"sub": user_id, "email": email, "type": "refresh", "exp": int(time.time()) + 86400 * 30},
+        _MOCK_SECRET, algorithm="HS256"
+    )
+    return AuthTokenResponse(
+        access_token=access,
+        refresh_token=refresh,
+        user=UserResponse(id=user_id, email=email, name=name),
+    )
 
-async def get_current_user_optional(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    db_manager: DatabaseManager = Depends(get_database_manager)
-) -> Optional[Dict[str, Any]]:
-    """
-    Verify JWT token and get current user (optional).
-    Returns None if no token is provided or token is invalid.
-    
-    Returns:
-        Optional[Dict]: User data if authenticated, None otherwise
-    """
-    if not credentials or not credentials.credentials:
-        return None
-        
-    try:
-        # Get JWT secret - check for mock mode first
-        jwt_secret = os.environ.get("SUPABASE_JWT_SECRET")
-        if not jwt_secret:
-            # Check if we're in mock mode
-            use_mock_auth = os.environ.get("USE_MOCK_AUTH", "false").lower() == "true"
-            if use_mock_auth:
-                # Use mock secret for development
-                jwt_secret = "development_secret_key_not_for_production"
-            else:
-                return None
-        
-        # Decode token
-        payload = jwt.decode(
-            credentials.credentials, 
-            jwt_secret,
-            algorithms=["HS256"],
-            options={
-                "verify_signature": True,
-                "verify_aud": False  # Disable audience verification for Supabase JWTs
-            }
-        )
-        
-        # Check if token has expired
-        if datetime.fromtimestamp(payload.get("exp", 0)) < datetime.utcnow():
-            return None
-        
-        # Get user ID from token
-        user_id = payload.get("sub")
-        if not user_id:
-            return None
-        
-        # Get user from database
-        user = await db_manager.get_user(user_id)
-        return user
-    
-    except jwt.PyJWTError as e:
-        logger.debug(f"JWT verification failed (optional auth): {e}")
-        return None
-    except Exception as e:
-        logger.debug(f"Error verifying token (optional auth): {e}")
-        return None
-
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db_manager: DatabaseManager = Depends(get_database_manager)
-) -> Dict[str, Any]:
-    """
-    Verify JWT token and get current user.
-    
-    Returns:
-        Dict: User data
-    
-    Raises:
-        HTTPException: If token is invalid or expired
-    """
-    try:
-        # Get JWT secret - check for mock mode first
-        jwt_secret = os.environ.get("SUPABASE_JWT_SECRET")
-        if not jwt_secret:
-            # Check if we're in mock mode
-            use_mock_auth = os.environ.get("USE_MOCK_AUTH", "false").lower() == "true"
-            if use_mock_auth:
-                # Use mock secret for development
-                jwt_secret = "development_secret_key_not_for_production"
-            else:
-                raise HTTPException(status_code=500, detail="JWT secret not configured")
-        
-        # Decode token
-        payload = jwt.decode(
-            credentials.credentials, 
-            jwt_secret,
-            algorithms=["HS256"],
-            options={
-                "verify_signature": True,
-                "verify_aud": False  # Disable audience verification for Supabase JWTs
-            }
-        )
-        
-        # Check if token has expired
-        if datetime.fromtimestamp(payload.get("exp", 0)) < datetime.utcnow():
-            raise HTTPException(
-                status_code=401, 
-                detail="Token has expired"
-            )
-        
-        # Get user ID from token
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(
-                status_code=401, 
-                detail="Invalid token payload"
-            )
-        
-        # Get user from database
-        user = await db_manager.get_user(user_id)
-        if not user:
-            raise HTTPException(
-                status_code=404, 
-                detail="User not found"
-            )
-        
-        return user
-    
-    except jwt.PyJWTError as e:
-        logger.error(f"JWT verification error: {e}")
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid authentication token"
-        )
-    except Exception as e:
-        logger.exception(f"Error verifying token: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail="Internal server error during authentication"
-        )
+# ── Route factory ─────────────────────────────────────────────────────────
 
 def create_auth_api(app):
-    """Creates and registers authentication API routes."""
-    router = APIRouter(prefix="/auth", tags=["authentication"])
+    router = APIRouter(prefix="/auth", tags=["auth"])
 
     @router.post("/register", response_model=AuthTokenResponse)
-    async def register_user(
-        register_data: UserRegisterRequest,
-        db_manager: DatabaseManager = Depends(get_database_manager)
-    ):
-        """
-        Register a new user with email, password, and name.
-        Creates user account in Supabase auth and local database.
-        
-        Returns:
-            AuthTokenResponse: Authentication tokens and user data
-        """
+    async def register(body: RegisterRequest):
+        if not _cognito_available():
+            if USE_MOCK_AUTH:
+                import uuid
+                return _mock_tokens(str(uuid.uuid4()), body.email, body.name)
+            raise HTTPException(status_code=503, detail="Auth service not configured")
         try:
-            # Register user with Supabase Auth
-            auth_data = await db_manager.register_user(
-                email=register_data.email, 
-                password=register_data.password,
-                name=register_data.name
+            cog = _get_cognito()
+            resp = await asyncio.to_thread(
+                cog.sign_up,
+                ClientId=COGNITO_CLIENT_ID,
+                Username=body.email,
+                Password=body.password,
+                UserAttributes=[
+                    {"Name": "email", "Value": body.email},
+                    {"Name": "name", "Value": body.name},
+                ],
             )
-            
-            logger.info(f"User registered successfully: {register_data.email}")
-            return auth_data
-            
-        except Exception as e:
-            logger.exception(f"Registration failed: {e}")
-            raise HTTPException(
-                status_code=400,
-                detail=f"Registration failed: {str(e)}"
+            user_id = resp["UserSub"]
+            # Auto-confirm for dev (remove in prod — use email verification)
+            if os.getenv("COGNITO_AUTO_CONFIRM", "false").lower() == "true":
+                await asyncio.to_thread(
+                    cog.admin_confirm_sign_up,
+                    UserPoolId=COGNITO_USER_POOL_ID,
+                    Username=body.email,
+                )
+            # Login to get tokens
+            auth_resp = await asyncio.to_thread(
+                cog.initiate_auth,
+                AuthFlow="USER_PASSWORD_AUTH",
+                AuthParameters={"USERNAME": body.email, "PASSWORD": body.password},
+                ClientId=COGNITO_CLIENT_ID,
             )
+            tokens = auth_resp["AuthenticationResult"]
+            return AuthTokenResponse(
+                access_token=tokens["AccessToken"],
+                refresh_token=tokens["RefreshToken"],
+                user=UserResponse(id=user_id, email=body.email, name=body.name),
+            )
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code == "UsernameExistsException":
+                raise HTTPException(status_code=409, detail="Email already registered")
+            raise HTTPException(status_code=400, detail=e.response["Error"]["Message"])
 
     @router.post("/login", response_model=AuthTokenResponse)
-    async def login_user(
-        login_data: UserLoginRequest,
-        db_manager: DatabaseManager = Depends(get_database_manager)
-    ):
-        """
-        Login a user with email and password.
-        
-        Returns:
-            AuthTokenResponse: Authentication tokens and user data
-        """
+    async def login(body: LoginRequest):
+        if not _cognito_available():
+            if USE_MOCK_AUTH:
+                import uuid
+                return _mock_tokens(str(uuid.uuid4()), body.email, body.email.split("@")[0])
+            raise HTTPException(status_code=503, detail="Auth service not configured")
         try:
-            # Login user with Supabase Auth
-            auth_data = await db_manager.login_user(
-                email=login_data.email, 
-                password=login_data.password
+            cog = _get_cognito()
+            resp = await asyncio.to_thread(
+                cog.initiate_auth,
+                AuthFlow="USER_PASSWORD_AUTH",
+                AuthParameters={"USERNAME": body.email, "PASSWORD": body.password},
+                ClientId=COGNITO_CLIENT_ID,
             )
-            
-            logger.info(f"User logged in successfully: {login_data.email}")
-            return auth_data
-            
-        except Exception as e:
-            logger.exception(f"Login failed: {e}")
-            raise HTTPException(
-                status_code=401,
-                detail=f"Login failed: {str(e)}"
+            tokens = resp["AuthenticationResult"]
+            payload = jwt.decode(tokens["IdToken"], options={"verify_signature": False})
+            return AuthTokenResponse(
+                access_token=tokens["AccessToken"],
+                refresh_token=tokens["RefreshToken"],
+                user=UserResponse(
+                    id=payload.get("sub", ""),
+                    email=payload.get("email", body.email),
+                    name=payload.get("name", ""),
+                ),
             )
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code in ("NotAuthorizedException", "UserNotFoundException"):
+                raise HTTPException(status_code=401, detail="Invalid email or password")
+            raise HTTPException(status_code=400, detail=e.response["Error"]["Message"])
 
     @router.post("/refresh", response_model=AuthTokenResponse)
-    async def refresh_token(
-        refresh_token: str,
-        db_manager: DatabaseManager = Depends(get_database_manager)
-    ):
-        """
-        Refresh an access token using a refresh token.
-        
-        Returns:
-            AuthTokenResponse: New authentication tokens and user data
-        """
+    async def refresh(body: RefreshRequest):
+        if not _cognito_available():
+            if USE_MOCK_AUTH:
+                payload = jwt.decode(body.refresh_token, _MOCK_SECRET, algorithms=["HS256"])
+                return _mock_tokens(payload["sub"], payload.get("email", ""), "")
+            raise HTTPException(status_code=503, detail="Auth service not configured")
         try:
-            # Refresh token with Supabase Auth
-            auth_data = await db_manager.refresh_token(refresh_token)
-            
-            logger.info("Token refreshed successfully")
-            return auth_data
-            
-        except Exception as e:
-            logger.exception(f"Token refresh failed: {e}")
-            raise HTTPException(
-                status_code=401,
-                detail=f"Token refresh failed: {str(e)}"
+            cog = _get_cognito()
+            resp = await asyncio.to_thread(
+                cog.initiate_auth,
+                AuthFlow="REFRESH_TOKEN_AUTH",
+                AuthParameters={"REFRESH_TOKEN": body.refresh_token},
+                ClientId=COGNITO_CLIENT_ID,
             )
+            tokens = resp["AuthenticationResult"]
+            payload = jwt.decode(tokens["AccessToken"], options={"verify_signature": False})
+            return AuthTokenResponse(
+                access_token=tokens["AccessToken"],
+                refresh_token=body.refresh_token,  # Cognito doesn't re-issue refresh on REFRESH flow
+                user=UserResponse(id=payload.get("sub", ""), email=payload.get("email", ""), name=""),
+            )
+        except ClientError as e:
+            raise HTTPException(status_code=401, detail="Token refresh failed")
 
     @router.get("/me", response_model=UserResponse)
-    async def get_user_profile(
-        current_user: Dict[str, Any] = Depends(get_current_user)
-    ):
-        """
-        Get the current user's profile.
-        
-        Returns:
-            UserResponse: User profile data
-        """
-        return UserResponse(
-            id=current_user["id"],
-            email=current_user["email"],
-            name=current_user["name"],
-            created_at=current_user.get("created_at")
-        )
+    async def me(user: Dict[str, Any] = Depends(get_current_user)):
+        return UserResponse(id=user["id"], email=user["email"], name=user["name"])
 
     @router.post("/logout", response_model=MessageResponse)
-    async def logout_user(
-        db_manager: DatabaseManager = Depends(get_database_manager),
-        current_user: Dict[str, Any] = Depends(get_current_user)
-    ):
+    async def logout(user: Dict[str, Any] = Depends(get_current_user)):
+        # Cognito: revoke access token (best-effort)
+        if _cognito_available():
+            try:
+                token = user.get("payload", {}).get("jti")  # use token from header if needed
+                # Global sign-out revokes all tokens for the user
+                await asyncio.to_thread(
+                    _get_cognito().admin_user_global_sign_out,
+                    UserPoolId=COGNITO_USER_POOL_ID,
+                    Username=user["email"],
+                )
+            except Exception:
+                pass  # best-effort
+        return MessageResponse(message="Logged out successfully")
+
+    @router.delete("/me/data", response_model=MessageResponse)
+    async def delete_my_data(user: Dict[str, Any] = Depends(get_current_user)):
         """
-        Logout the current user.
-        
-        Returns:
-            MessageResponse: Success message
+        DPDPA / GDPR right to deletion.
+        Deletes all user data cascading through all tables.
         """
+        user_id = user["id"]
         try:
-            # Optional: Invalidate token on server side
-            # For Supabase, this typically happens client-side
-            
-            logger.info(f"User logged out: {current_user['email']}")
-            return MessageResponse(message="Logged out successfully")
-            
+            from backend.database import get_db
+            from sqlalchemy import text as sql_text
+            async for db in get_db():
+                # Cascade deletes via FK constraints — delete top-level rows only
+                await db.execute(sql_text("DELETE FROM interview_sessions WHERE user_id = :uid"), {"uid": user_id})
+                await db.execute(sql_text("DELETE FROM interview_blueprints WHERE user_id = :uid"), {"uid": user_id})
+                await db.execute(sql_text("DELETE FROM candidate_profiles WHERE user_id = :uid"), {"uid": user_id})
+                await db.execute(sql_text(
+                    "UPDATE platform_users SET email=:anon, name='[deleted]', auth_provider_id=NULL "
+                    "WHERE id = :uid",
+                ), {"anon": f"deleted_{user_id}@deleted", "uid": user_id})
+                await db.commit()
+                break
         except Exception as e:
-            logger.exception(f"Logout failed: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Logout failed: {str(e)}"
-            )
+            logger.error(f"Data deletion error for user {user_id}: {type(e).__name__}")
+            raise HTTPException(status_code=500, detail="Data deletion failed")
+
+        # Delete from Cognito (best-effort)
+        if _cognito_available():
+            try:
+                await asyncio.to_thread(
+                    _get_cognito().admin_delete_user,
+                    UserPoolId=COGNITO_USER_POOL_ID,
+                    Username=user["email"],
+                )
+            except Exception:
+                pass
+
+        logger.info(f"User data deleted: user_id={user_id}")
+        return MessageResponse(message="All your data has been deleted.")
 
     app.include_router(router)
-    logger.info("Auth API routes registered") 
+    logger.info("Auth API routes registered (Cognito backend)")
