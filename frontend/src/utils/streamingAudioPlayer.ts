@@ -1,10 +1,12 @@
 /**
  * Web Audio API PCM streaming player for Gemini Live / Nova Sonic.
- * Plays 24kHz 16-bit linear PCM chunks seamlessly with barge-in support.
+ * Plays 24kHz 16-bit linear PCM chunks seamlessly.
  */
 
 export class StreamingAudioPlayer {
-  private audioContext: AudioContext | null = null;
+  public readonly audioContext: AudioContext;
+  private readonly analyser: AnalyserNode;
+  private readonly analyserData: Uint8Array;
   private nextPlayTime: number = 0;
   private isPlaying: boolean = false;
   private activeSources: AudioBufferSourceNode[] = [];
@@ -15,16 +17,23 @@ export class StreamingAudioPlayer {
 
   constructor(onPlaybackStateChange?: (isPlaying: boolean) => void) {
     this.onPlaybackStateChange = onPlaybackStateChange;
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    this.audioContext = new AudioCtx();
+    this.analyser = this.audioContext.createAnalyser();
+    this.analyser.fftSize = 256;
+    this.analyserData = new Uint8Array(this.analyser.frequencyBinCount);
+    this.analyser.connect(this.audioContext.destination);
+  }
+
+  /** Returns 0-1 RMS level of the currently playing AI audio. */
+  getLevel(): number {
+    this.analyser.getByteFrequencyData(this.analyserData);
+    const sum = this.analyserData.reduce((s, v) => s + v, 0);
+    return Math.min(1, sum / (this.analyserData.length * 128));
   }
 
   public async unlock(): Promise<void> {
     try {
-      if (!this.audioContext || this.audioContext.state === 'closed') {
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        this.audioContext = new AudioCtx();
-        this.nextPlayTime = this.audioContext.currentTime;
-        console.log('[AudioPlayer] Created AudioContext, state:', this.audioContext.state);
-      }
       if (this.audioContext.state === 'suspended') {
         await this.audioContext.resume();
         console.log('[AudioPlayer] AudioContext resumed, state:', this.audioContext.state);
@@ -46,14 +55,6 @@ export class StreamingAudioPlayer {
     }
 
     try {
-      // Ensure AudioContext exists and is running
-      if (!this.audioContext || this.audioContext.state === 'closed') {
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        this.audioContext = new AudioCtx();
-        this.nextPlayTime = this.audioContext.currentTime;
-        console.log('[AudioPlayer] Re-created AudioContext in playChunk');
-      }
-
       if (this.audioContext.state === 'suspended') {
         console.log('[AudioPlayer] AudioContext suspended on chunk', chunkNum, '— resuming...');
         await this.audioContext.resume();
@@ -89,16 +90,19 @@ export class StreamingAudioPlayer {
         float32[i] = pcm16[i] / 32768.0;
       }
 
-      // Gemini Live outputs 24kHz mono 16-bit PCM
-      const audioBuffer = this.audioContext.createBuffer(1, float32.length, 24000);
+      // Polly PCM output is 16kHz mono 16-bit PCM
+      const audioBuffer = this.audioContext.createBuffer(1, float32.length, 16000);
       audioBuffer.getChannelData(0).set(float32);
 
       const source = this.audioContext.createBufferSource();
       source.buffer = audioBuffer;
-      source.connect(this.audioContext.destination);
+      source.connect(this.analyser); // analyser → destination (for getLevel())
 
       const now = this.audioContext.currentTime;
-      const startTime = Math.max(now, this.nextPlayTime);
+      // If nextPlayTime is 0 (after stop/reset) or stale, start from now + small buffer
+      const startTime = this.nextPlayTime <= now
+        ? now + 0.05
+        : this.nextPlayTime;
       source.start(startTime);
       this.nextPlayTime = startTime + audioBuffer.duration;
 
@@ -136,6 +140,7 @@ export class StreamingAudioPlayer {
   }
 
   stop() {
+    // Clear the debounce timer first so it can't fire after stop
     if (this.endDebounceTimer !== null) {
       clearTimeout(this.endDebounceTimer);
       this.endDebounceTimer = null;
@@ -144,9 +149,8 @@ export class StreamingAudioPlayer {
       try { source.stop(); source.disconnect(); } catch (_) {}
     }
     this.activeSources = [];
-    if (this.audioContext) {
-      this.nextPlayTime = this.audioContext.currentTime;
-    }
+    // Reset to 0 so the next playChunk recalculates startTime from currentTime
+    this.nextPlayTime = 0;
     if (this.isPlaying) {
       this.isPlaying = false;
       this.chunkCount = 0;
@@ -156,9 +160,8 @@ export class StreamingAudioPlayer {
 
   close() {
     this.stop();
-    if (this.audioContext && this.audioContext.state !== 'closed') {
+    if (this.audioContext.state !== 'closed') {
       this.audioContext.close().catch(() => {});
-      this.audioContext = null;
     }
   }
 }

@@ -52,7 +52,7 @@ def get_environment_info() -> Dict[str, Any]:
     Get current environment diagnostic information including voice engine parameters.
     """
     is_azure = os.environ.get("WEBSITES_PORT") is not None
-    voice_provider = os.getenv("VOICE_PROVIDER", "nova").lower()
+    voice_provider = os.getenv("VOICE_PROVIDER", "gemini").lower()
     has_aws_keys = bool(os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY"))
     has_gemini_key = bool(os.getenv("GEMINI_VOICE_API_KEY") and not os.getenv("GEMINI_VOICE_API_KEY", "").startswith("your_"))
 

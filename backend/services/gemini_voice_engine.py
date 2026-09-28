@@ -2,7 +2,7 @@
 GeminiVoiceEngine — Voice provider using Google Gemini Live API.
 
 Drop-in alternative to NovaSonicVoiceEngine when VOICE_PROVIDER=gemini.
-Produces the same callback events (on_audio, on_transcript, on_barge_in,
+Produces the same callback events (on_audio, on_transcript,
 on_turn_ended, on_error) so the rest of the pipeline
 (speech_api -> AgentSessionManager -> InterviewerAgent) works unchanged.
 """
@@ -31,7 +31,9 @@ def _get_gemini_voice_api_key() -> str:
 
 
 def _get_gemini_voice_model() -> str:
-    return os.getenv("GEMINI_VOICE_MODEL", "gemini-3.8-live")
+    # SDK expects bare name without "models/" prefix — strip it if present
+    model = os.getenv("GEMINI_VOICE_MODEL", "gemini-3.8-live")
+    return model.removeprefix("models/")
 
 
 def _get_gemini_voice_name() -> str:
@@ -53,7 +55,6 @@ class GeminiVoiceSession:
         api_key: Optional[str] = None,
         on_audio: Optional[Callable[[str], Awaitable[None]]] = None,
         on_transcript: Optional[Callable[[str, str, bool], Awaitable[None]]] = None,
-        on_barge_in: Optional[Callable[[], Awaitable[None]]] = None,
         on_turn_ended: Optional[Callable[[str], Awaitable[None]]] = None,
         on_renewed: Optional[Callable[[], Awaitable[None]]] = None,
         on_error: Optional[Callable[[str], Awaitable[None]]] = None,
@@ -66,7 +67,6 @@ class GeminiVoiceSession:
 
         self.on_audio = on_audio
         self.on_transcript = on_transcript
-        self.on_barge_in = on_barge_in
         self.on_turn_ended = on_turn_ended
         self.on_renewed = on_renewed
         self.on_error = on_error
@@ -77,6 +77,7 @@ class GeminiVoiceSession:
         self.is_connected = False
         self.is_closing = False
         self.active_provider = f"gemini-live:{self.model}"
+        self._audio_frames_sent: int = 0
 
     async def start(self) -> bool:
         """Open a Gemini Live session."""
@@ -104,6 +105,14 @@ class GeminiVoiceSession:
                 ),
                 input_audio_transcription=types.AudioTranscriptionConfig(),
                 output_audio_transcription=types.AudioTranscriptionConfig(),
+                realtime_input_config=types.RealtimeInputConfig(
+                    automatic_activity_detection=types.AutomaticActivityDetection(
+                        # Disable Gemini's built-in VAD — client sends client_turn_complete
+                        # explicitly via the "Finish Answer" button or 6.5s silence fallback.
+                        # Having both active causes double turn signals and spurious responses.
+                        disabled=True,
+                    )
+                ),
             )
 
             self._ctx_manager = self._client.aio.live.connect(
@@ -139,13 +148,6 @@ class GeminiVoiceSession:
 
                 server_content = getattr(msg, "server_content", None)
                 if not server_content:
-                    continue
-
-                # --- Interruption (barge-in) ---
-                if getattr(server_content, "interrupted", False):
-                    logger.info("Gemini Live: interrupted (barge-in)")
-                    if self.on_barge_in:
-                        await self.on_barge_in()
                     continue
 
                 turn_complete = getattr(server_content, "turn_complete", False)
@@ -223,7 +225,7 @@ class GeminiVoiceSession:
             return
         try:
             raw_bytes = base64.b64decode(base64_audio)
-            self._audio_frames_sent = getattr(self, '_audio_frames_sent', 0) + 1
+            self._audio_frames_sent += 1
             if self._audio_frames_sent % 300 == 1:
                 logger.info(f"🎤 Sending user audio to Gemini Live (frame #{self._audio_frames_sent}, {len(raw_bytes)} bytes)")
             await self._live_session.send_realtime_input(
@@ -237,10 +239,18 @@ class GeminiVoiceSession:
         if not self.is_connected or self.is_closing or not self._live_session:
             return
         try:
-            # send_client_content with turn_complete=True and NO turns content
-            # tells Gemini "process the audio you received and respond"
             await self._live_session.send_client_content(turn_complete=True)
             logger.info("🗣️ Sent end-of-turn signal to Gemini Live")
+        except TypeError:
+            # Some SDK versions require turns argument even when empty
+            try:
+                await self._live_session.send_client_content(
+                    turns=types.Content(role="user", parts=[]),
+                    turn_complete=True
+                )
+                logger.info("🗣️ Sent end-of-turn (with empty turns) to Gemini Live")
+            except Exception as e2:
+                logger.error(f"Error sending end-of-turn (both forms) to Gemini Live: {e2}")
         except Exception as e:
             logger.error(f"Error sending end-of-turn to Gemini Live: {e}")
 
@@ -268,6 +278,14 @@ class GeminiVoiceSession:
         if self.is_closing:
             return
         try:
+            # Cancel any lingering receive task before spawning a new one
+            if self._receive_task and not self._receive_task.done():
+                self._receive_task.cancel()
+                try:
+                    await asyncio.wait_for(self._receive_task, timeout=0.5)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+
             # Close old session cleanly
             if self._live_session:
                 try:
@@ -297,6 +315,11 @@ class GeminiVoiceSession:
                 ),
                 input_audio_transcription=types.AudioTranscriptionConfig(),
                 output_audio_transcription=types.AudioTranscriptionConfig(),
+                realtime_input_config=types.RealtimeInputConfig(
+                    automatic_activity_detection=types.AutomaticActivityDetection(
+                        disabled=True,
+                    )
+                ),
             )
             self._ctx_manager = self._client.aio.live.connect(model=self.model, config=config)
             self._live_session = await self._ctx_manager.__aenter__()
@@ -321,6 +344,10 @@ class GeminiVoiceSession:
 
         if self._receive_task and not self._receive_task.done():
             self._receive_task.cancel()
+            try:
+                await asyncio.wait_for(self._receive_task, timeout=1.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
 
         if self._live_session:
             try:
@@ -367,7 +394,7 @@ class GeminiVoiceEngine:
             "region": "global",
             "active_streams": len(self._active_sessions),
             "transport": "websocket",
-            "turn_detection": "native",
+            "turn_detection": "client_explicit",
             "connection_limit": "none"
         }
 
@@ -378,7 +405,6 @@ class GeminiVoiceEngine:
         voice_id: Optional[str] = None,
         on_audio: Optional[Callable[[str], Awaitable[None]]] = None,
         on_transcript: Optional[Callable[[str, str, bool], Awaitable[None]]] = None,
-        on_barge_in: Optional[Callable[[], Awaitable[None]]] = None,
         on_turn_ended: Optional[Callable[[str], Awaitable[None]]] = None,
         on_renewed: Optional[Callable[[], Awaitable[None]]] = None,
         on_error: Optional[Callable[[str], Awaitable[None]]] = None,
@@ -393,13 +419,15 @@ class GeminiVoiceEngine:
             model=self.model,
             on_audio=on_audio,
             on_transcript=on_transcript,
-            on_barge_in=on_barge_in,
             on_turn_ended=on_turn_ended,
             on_renewed=on_renewed,
             on_error=on_error
         )
         self._active_sessions[session_id] = session
-        await session.start()
+        started = await session.start()
+        if not started:
+            del self._active_sessions[session_id]
+            raise RuntimeError(f"GeminiVoiceSession.start() failed for session {session_id}")
         return session
 
     def get_session(self, session_id: str) -> Optional[GeminiVoiceSession]:

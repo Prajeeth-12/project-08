@@ -747,3 +747,8 @@
 .loading {
   @apply flex items-center justify-center min-h-screen text-[#111827];
 }
+
+@keyframes cockpitBar {
+  from { transform: scaleY(0.4); opacity: 0.7; }
+  to   { transform: scaleY(1.0); opacity: 1;   }
+}

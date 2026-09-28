@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import CockpitChatStream from './CockpitChatStream';
 import CockpitAudioWave from './CockpitAudioWave';
-import { DevTextInput } from './DevTextInput';
 import TranscriptDrawer from './TranscriptDrawer';
 import InterviewInstructionsModal from './InterviewInstructionsModal';
 import { SessionWarningDialog } from './SessionWarningDialog';
 import { useVoiceFirstInterview } from '../hooks/useVoiceFirstInterview';
 import { Message, CoachFeedbackState } from '@/hooks/useInterviewSession';
 import { Button } from '@/components/ui/button';
-import { MessageSquare, Clock, Keyboard, Send, AlertTriangle } from 'lucide-react';
+import { MessageSquare, Clock, Keyboard, Send, AlertTriangle, CheckCircle } from 'lucide-react';
 
 interface InterviewSessionProps {
   interviewDurationMinutes?: number;
@@ -41,7 +40,9 @@ const InterviewSession: React.FC<InterviewSessionProps> = ({
 }) => {
   const [showInstructions, setShowInstructions] = useState(true);
   const [selectedVoice, setSelectedVoice] = useState<string | null>(null);
-  const [sessionStartTime] = useState(Date.now());
+  // Timer starts null and is set when the user dismisses the instructions modal,
+  // so the countdown doesn't run while they're reading instructions.
+  const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
@@ -53,7 +54,7 @@ const InterviewSession: React.FC<InterviewSessionProps> = ({
   const {
     voiceActivityLevel,
     accumulatedTranscript,
-    streamingAiText,
+    aiTextRef,
     isUserSpeaking,
     isListening,
     isProcessing,
@@ -61,6 +62,7 @@ const InterviewSession: React.FC<InterviewSessionProps> = ({
     turnState,
     audioPlaying,
     startVoiceSession,
+    finishAnswer,
   } = useVoiceFirstInterview(
     { messages, isLoading, state: 'interviewing', selectedVoice, sessionId, disableAutoTTS: showInstructions },
     onSendMessage,
@@ -72,6 +74,18 @@ const InterviewSession: React.FC<InterviewSessionProps> = ({
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return;
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      e.preventDefault();
+      if (isListening && turnState !== 'ai') finishAnswer();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [finishAnswer, isListening, turnState]);
+
   // Auto-enable voice on mount
   useEffect(() => {
     if (!defaultVoiceSetRef.current) {
@@ -79,16 +93,16 @@ const InterviewSession: React.FC<InterviewSessionProps> = ({
       onVoiceSelect('enabled');
       defaultVoiceSetRef.current = true;
     }
-  }, []);
+  }, [onVoiceSelect]);
 
-  // Countdown timer
+  // Countdown timer — only starts after instructions are dismissed
   const totalSeconds = interviewDurationMinutes * 60;
-  const elapsed = Math.floor((currentTime - sessionStartTime) / 1000);
+  const elapsed = sessionStartTime ? Math.floor((currentTime - sessionStartTime) / 1000) : 0;
   const remaining = Math.max(0, totalSeconds - elapsed);
   const mm = String(Math.floor(remaining / 60)).padStart(2, '0');
   const ss = String(remaining % 60).padStart(2, '0');
-  const isLowTime = remaining < 120 && remaining > 0;
-  const isExpired = remaining === 0;
+  const isLowTime = remaining < 120 && remaining > 0 && sessionStartTime !== null;
+  const isExpired = remaining === 0 && sessionStartTime !== null;
 
   // Auto-end interview and transition to post-interview report when time reaches 00:00
   useEffect(() => {
@@ -101,6 +115,7 @@ const InterviewSession: React.FC<InterviewSessionProps> = ({
 
   const handleInstructionsDismiss = () => {
     setShowInstructions(false);
+    setSessionStartTime(Date.now());
     // Start persistent voice session on user gesture (required for AudioContext unlock)
     startVoiceSession();
   };
@@ -144,8 +159,9 @@ const InterviewSession: React.FC<InterviewSessionProps> = ({
           isListening={isListening}
           isProcessing={isProcessing}
           accumulatedTranscript={accumulatedTranscript}
-          streamingAiText={streamingAiText}
+          aiTextRef={aiTextRef}
           isUserSpeaking={isUserSpeaking}
+          audioPlaying={audioPlaying}
         />
       </div>
 
@@ -182,7 +198,29 @@ const InterviewSession: React.FC<InterviewSessionProps> = ({
         </div>
       )}
 
-      {/* ── Control Dock ── */}
+      {/* ── Primary Turn Control ── */}
+      {isListening && (
+        <div className="fixed bottom-[68px] left-1/2 -translate-x-1/2 z-20">
+          <button
+            onClick={finishAnswer}
+            disabled={turnState === 'ai'}
+            title="Finish your answer (Space)"
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl text-sm font-semibold shadow-lg transition-all duration-200 ${
+              turnState === 'ai'
+                ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'
+                : isUserSpeaking
+                  ? 'bg-[#DC2626] text-white ring-2 ring-[#DC2626]/40 animate-pulse shadow-[0_4px_20px_rgba(220,38,38,0.35)]'
+                  : 'bg-[#DC2626] text-white hover:bg-red-700 shadow-[0_4px_16px_rgba(220,38,38,0.25)]'
+            }`}
+          >
+            <CheckCircle size={16} />
+            Finish Answer
+            <span className="opacity-50 text-[11px] font-normal ml-0.5">Space</span>
+          </button>
+        </div>
+      )}
+
+      {/* ── Secondary Control Dock ── */}
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 p-1.5 rounded-2xl bg-white border border-gray-200 shadow-[0_4px_20px_rgba(0,0,0,0.08)]">
         <button
           onClick={() => setTranscriptOpen(!transcriptOpen)}

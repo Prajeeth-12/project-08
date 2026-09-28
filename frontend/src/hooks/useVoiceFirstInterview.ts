@@ -30,22 +30,30 @@ export function useVoiceFirstInterview(
   const { toast } = useToast();
 
   const [turnState, setTurnState] = useState<'user' | 'ai' | 'idle'>('idle');
+  const setTurn = (s: 'user' | 'ai' | 'idle') => { turnStateRef.current = s; setTurnState(s); };
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [microphoneActive, setMicrophoneActive] = useState(false);
   const [voiceActivityLevel, setVoiceActivityLevel] = useState(0);
   const [accumulatedTranscript, setAccumulatedTranscript] = useState('');
-  const [streamingAiText, setStreamingAiText] = useState('');
   const [isUserSpeaking, setIsUserSpeaking] = useState(false);
 
+  const aiTextRef = useRef<HTMLSpanElement | null>(null);
+  const accumulatedAiTextRef = useRef('');
   const recognitionRef = useRef<StreamingSpeechRecognition | null>(null);
   const audioPlayerRef = useRef<StreamingAudioPlayer | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
+  const vadCleanupRef = useRef<(() => void) | null>(null);
+  const turnStateRef = useRef<'user' | 'ai' | 'idle'>('idle');
+  const clearAiText = () => {
+    accumulatedAiTextRef.current = '';
+    if (aiTextRef.current) aiTextRef.current.textContent = '';
+  };
 
   const setupVoiceActivityDetection = useCallback(async () => {
     try {
-      if (!audioContextRef.current) {
+      if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
       if (audioContextRef.current.state === 'suspended') await audioContextRef.current.resume();
@@ -63,7 +71,11 @@ export function useVoiceFirstInterview(
       const dataArray = new Uint8Array(bufferLength);
       let animId: number;
       const update = () => {
-        if (analyserRef.current) {
+        if (turnStateRef.current === 'ai' && audioPlayerRef.current) {
+          // Drive the wave from actual AI playback audio
+          setVoiceActivityLevel(audioPlayerRef.current.getLevel());
+        } else if (analyserRef.current) {
+          // Drive the wave from mic audio
           analyserRef.current.getByteFrequencyData(dataArray);
           const avg = dataArray.reduce((s, v) => s + v, 0) / bufferLength;
           setVoiceActivityLevel(Math.min(1, avg / 128));
@@ -71,6 +83,7 @@ export function useVoiceFirstInterview(
         animId = requestAnimationFrame(update);
       };
       update();
+      // Return cleanup so the caller can cancel the rAF loop
       return () => cancelAnimationFrame(animId);
     } catch (e) {
       console.error('VAD setup error:', e);
@@ -84,7 +97,7 @@ export function useVoiceFirstInterview(
       if (!audioPlayerRef.current) {
         audioPlayerRef.current = new StreamingAudioPlayer((isPlaying) => {
           setAudioPlaying(isPlaying);
-          if (!isPlaying) setTurnState('idle');
+          if (!isPlaying) setTurn('idle');
         });
       }
       await audioPlayerRef.current.unlock();
@@ -94,47 +107,50 @@ export function useVoiceFirstInterview(
 
         onConnected: () => {
           setMicrophoneActive(true);
-          setTurnState('idle');
-          setupVoiceActivityDetection();
+          setTurn('idle');
+          // Store VAD cleanup ref to cancel the rAF loop on stop
+          setupVoiceActivityDetection().then(cleanup => {
+            vadCleanupRef.current = cleanup || null;
+          });
           console.log('🎙️ Voice session connected');
         },
 
         onDisconnected: () => {
           setMicrophoneActive(false);
-          setTurnState('idle');
+          setTurn('idle');
+          // Null the ref so startVoiceSession can be called again after reconnect
+          recognitionRef.current = null;
         },
 
         onTranscript: (text, isFinal, role) => {
-          if (!text?.trim()) return;
           if (role === 'assistant') {
-            // Stream AI text word by word as Gemini speaks
-            if (!isFinal) {
-              setStreamingAiText(prev => prev + text);
-            } else {
-              // Final output transcription — keep it visible briefly then clear
-              setStreamingAiText('');
+            // Write tokens directly to DOM as they arrive — no queue, no interval
+            if (!isFinal && text && turnStateRef.current === 'ai') {
+              accumulatedAiTextRef.current += text;
+              if (aiTextRef.current) aiTextRef.current.textContent = accumulatedAiTextRef.current;
             }
           } else {
-            // User transcript from Gemini's STT
-            if (isFinal) {
-              console.log('📝 User voice captured:', text);
-              setAccumulatedTranscript(prev => prev ? prev + ' ' + text : text);
-            }
+            // Both interim and final user transcripts — replace so it streams live
+            if (text) setAccumulatedTranscript(text);
+            if (isFinal) console.log('📝 User voice captured:', text);
           }
         },
 
         onAudioChunk: (base64Audio) => {
-          audioPlayerRef.current?.playChunk(base64Audio);
-          setTurnState('ai');
+          const player = audioPlayerRef.current;
+          if (player?.audioContext?.state === 'suspended') player.audioContext.resume();
+          player?.playChunk(base64Audio);
+          setTurn('ai');
           setAudioPlaying(true);
-          setAccumulatedTranscript('');
         },
 
         onTurnEnded: () => {
           console.log('🔄 AI turn ended → user can speak');
-          setTurnState('user');
+          clearAiText();
+          setTurn('user');
           setAudioPlaying(false);
-          setStreamingAiText('');
+          setAccumulatedTranscript('');
+          recognitionRef.current?.setMuted(false);
         },
 
         onInterviewEnding: () => {
@@ -147,7 +163,6 @@ export function useVoiceFirstInterview(
         },
 
         onUserSpeaking: (speaking) => setIsUserSpeaking(speaking),
-        onBargeIn: undefined,
         onSpeechStarted: undefined,
         onUtteranceEnd: undefined,
       });
@@ -160,19 +175,29 @@ export function useVoiceFirstInterview(
   }, [setupVoiceActivityDetection, toast, sessionData.sessionId, onEndInterview]);
 
   const stopVoiceSession = useCallback(() => {
+    // Cancel the VAD rAF loop
+    vadCleanupRef.current?.();
+    vadCleanupRef.current = null;
+
     if (audioPlayerRef.current) audioPlayerRef.current.stop();
     if (recognitionRef.current) {
       recognitionRef.current.stop();
       recognitionRef.current = null;
     }
+    // Tear down the VAD AudioContext
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
     if (micStreamRef.current) {
       micStreamRef.current.getTracks().forEach(t => t.stop());
       micStreamRef.current = null;
     }
+    clearAiText();
     setMicrophoneActive(false);
-    setTurnState('idle');
+    setTurn('idle');
     setAudioPlaying(false);
-    setStreamingAiText('');
     setAccumulatedTranscript('');
     setIsUserSpeaking(false);
   }, []);
@@ -189,10 +214,18 @@ export function useVoiceFirstInterview(
   const isProcessing = false;
   const isDisabled = sessionData.state !== 'interviewing';
 
-  // No-op stubs for backward compatibility
+  // No-op stub for backward compatibility
   const toggleMicrophone = useCallback(async () => {
     if (!recognitionRef.current) await startVoiceSession();
   }, [startVoiceSession]);
+
+  const finishAnswer = useCallback(() => {
+    if (!recognitionRef.current) return;
+    audioPlayerRef.current?.unlock();
+    recognitionRef.current.setMuted(true);
+    recognitionRef.current.sendEndOfTurn();
+    setTurn('ai');
+  }, []);
 
   return {
     messages: sessionData.messages,
@@ -206,7 +239,8 @@ export function useVoiceFirstInterview(
     audioPlaying,
     voiceActivityLevel,
     accumulatedTranscript,
-    streamingAiText,
+    aiTextRef,
+    streamingAiText: '',
     isUserSpeaking,
 
     isListening,
@@ -217,6 +251,7 @@ export function useVoiceFirstInterview(
     toggleMicrophone,
     startVoiceSession,
     stopVoiceSession,
+    finishAnswer,
     toggleTranscript: () => {},
     toggleCoachFeedback: () => {},
     closeCoachFeedback: () => {},

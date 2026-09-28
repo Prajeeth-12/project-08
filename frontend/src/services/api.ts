@@ -42,7 +42,7 @@ export interface InterviewStartRequest {
 
 // Speech recognition types
 export interface SpeechTranscriptionEvent {
-  type: 'transcript' | 'error' | 'connected' | 'speech_started' | 'utterance_end' | 'audio' | 'barge_in' | 'turn_ended' | 'renewed' | 'interview_ending';
+  type: 'transcript' | 'error' | 'connected' | 'speech_started' | 'utterance_end' | 'audio' | 'turn_ended' | 'renewed' | 'interview_ending';
   text?: string;
   is_final?: boolean;
   error?: string;
@@ -66,7 +66,6 @@ export interface StreamingSpeechOptions {
   onSpeechStarted?: (timestamp: number) => void;
   onUtteranceEnd?: (lastSpokenAt: number) => void;
   onAudioChunk?: (base64Audio: string) => void;
-  onBargeIn?: () => void;
   onTurnEnded?: (stopReason: string) => void;
   onInterviewEnding?: (state?: any) => void;
   onUserSpeaking?: (isSpeaking: boolean) => void;
@@ -79,10 +78,7 @@ export class StreamingSpeechRecognition {
   private audioContext: AudioContext | null = null;
   private processor: ScriptProcessorNode | null = null;
   private inputSource: MediaStreamAudioSourceNode | null = null;
-  private mediaRecorder: MediaRecorder | null = null;
   private options: StreamingSpeechOptions;
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 3;
   private isMuted: boolean = false;
 
   constructor(options: StreamingSpeechOptions) {
@@ -93,13 +89,8 @@ export class StreamingSpeechRecognition {
     return this.mediaStream;
   }
 
-  // No-op kept for compatibility
-  setAiSpeaking(_speaking: boolean): void {
-    // barge-in removed — turn-based only
-    if (false) {
-      this.lastAiSpeechEndTime = Date.now();
-    }
-  }
+  // No-op kept for compatibility (barge-in removed)
+  setAiSpeaking(_speaking: boolean): void {}
 
   setMuted(muted: boolean): void {
     this.isMuted = muted;
@@ -111,6 +102,15 @@ export class StreamingSpeechRecognition {
     }
   }
 
+  sendEndOfTurn(): void {
+    const now = Date.now();
+    if (now - this.vadTriggeredAt < 3000) return;  // shared debounce with VAD
+    this.vadTriggeredAt = now;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'client_turn_complete' }));
+    }
+  }
+
   async start(): Promise<void> {
     try {
       // Get microphone access with acoustic echo cancellation
@@ -118,7 +118,7 @@ export class StreamingSpeechRecognition {
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
+          autoGainControl: false  // manual 4× gain applied in resampleTo16kHz; AGC fights it and clips
         }
       });
       
@@ -149,14 +149,6 @@ export class StreamingSpeechRecognition {
       this.audioContext = null;
     }
 
-    // Stop MediaRecorder fallback if active
-    if (this.mediaRecorder) {
-      try {
-        this.mediaRecorder.stop();
-      } catch (e) {}
-      this.mediaRecorder = null;
-    }
-    
     // Stop microphone stream tracks
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach(track => track.stop());
@@ -209,11 +201,6 @@ export class StreamingSpeechRecognition {
                 this.options.onAudioChunk(data.data);
               }
               break;
-            case 'barge_in':
-              if (this.options.onBargeIn) {
-                this.options.onBargeIn();
-              }
-              break;
             case 'turn_ended':
               if (this.options.onTurnEnded) {
                 this.options.onTurnEnded(data.stop_reason || 'END_TURN');
@@ -258,27 +245,23 @@ export class StreamingSpeechRecognition {
     }
   }
 
-  private consecutiveLoudFrames: number = 0;
-  private readonly BARGE_IN_RMS_THRESHOLD: number = 0.06;
-  private readonly BARGE_IN_CONSECUTIVE_FRAMES: number = 3;
-  private aiSpeakingStartTime: number = 0;
-  // VAD for end-of-speech detection (bypasses Gemini's unreliable VAD)
+  // VAD for end-of-speech detection
   private vadSpeechFrames: number = 0;
   private vadSilenceFrames: number = 0;
   private readonly VAD_SPEECH_THRESHOLD: number = 0.04; // after 4x gain
   private readonly VAD_MIN_SPEECH_FRAMES: number = 8;   // ~0.7s min speech
-  private readonly VAD_SILENCE_FRAMES: number = 18;     // ~1.5s silence = end of turn
+  private readonly VAD_SILENCE_FRAMES: number = 76;     // ~6.5s silence = end of turn
   private vadTriggeredAt: number = 0;
 
-  // 4× gain: mic RMS of 0.008–0.030 becomes 0.032–0.120, enough for Gemini's VAD
+  // 4× gain with tanh soft-saturation: mic RMS of 0.008–0.030 becomes 0.032–0.120, avoiding hard clipping
   private readonly MIC_GAIN = 4.0;
 
   private resampleTo16kHz(input: Float32Array, sampleRate: number): Int16Array {
     if (sampleRate === 16000) {
       const pcm16 = new Int16Array(input.length);
       for (let i = 0; i < input.length; i++) {
-        const s = Math.max(-1, Math.min(1, input[i] * this.MIC_GAIN));
-        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        const saturated = Math.tanh(input[i] * this.MIC_GAIN);
+        pcm16[i] = saturated < 0 ? saturated * 0x8000 : saturated * 0x7FFF;
       }
       return pcm16;
     }
@@ -293,9 +276,9 @@ export class StreamingSpeechRecognition {
       const frac = origPos - index;
       const s1 = input[index] || 0;
       const s2 = index + 1 < input.length ? input[index + 1] : s1;
-      const interpolated = (s1 + frac * (s2 - s1)) * this.MIC_GAIN;
-      const clamped = Math.max(-1, Math.min(1, interpolated));
-      pcm16[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7FFF;
+      const interpolated = s1 + frac * (s2 - s1);
+      const saturated = Math.tanh(interpolated * this.MIC_GAIN);
+      pcm16[i] = saturated < 0 ? saturated * 0x8000 : saturated * 0x7FFF;
     }
     return pcm16;
   }
@@ -357,7 +340,7 @@ export class StreamingSpeechRecognition {
             if (now - this.vadTriggeredAt > 3000) {
               this.vadTriggeredAt = now;
               console.log(`🗣️ VAD: end-of-speech (${this.vadSpeechFrames} frames) → signalling Gemini`);
-              this.ws.send(JSON.stringify({ type: 'end_of_speech' }));
+              this.ws.send(JSON.stringify({ type: 'client_turn_complete' }));
             }
             this.vadSpeechFrames = 0;
             this.vadSilenceFrames = 0;
@@ -377,25 +360,8 @@ export class StreamingSpeechRecognition {
       this.processor.connect(silentGain);
       silentGain.connect(this.audioContext.destination);
     } catch (err) {
-      console.warn('Web Audio PCM capture unavailable, using MediaRecorder fallback:', err);
-      try {
-        this.mediaRecorder = new MediaRecorder(this.mediaStream, { mimeType: 'audio/webm' });
-        this.mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0 && this.ws && this.isConnected && this.ws.readyState === WebSocket.OPEN) {
-            const reader = new FileReader();
-            reader.onload = () => {
-              if (this.ws && this.isConnected && reader.result) {
-                this.ws.send(reader.result);
-              }
-            };
-            reader.readAsArrayBuffer(event.data);
-          }
-        };
-        this.mediaRecorder.start(100);
-      } catch (recError) {
-        console.error('Error starting MediaRecorder fallback:', recError);
-        this.options.onError(`Failed to start audio recording: ${recError}`);
-      }
+      console.error('Web Audio PCM capture unavailable:', err);
+      this.options.onError('Microphone capture is not supported on this browser. Please use Chrome or Firefox.');
     }
   }
 }
