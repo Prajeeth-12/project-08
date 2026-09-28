@@ -19,7 +19,7 @@ from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-
+from backend.api.code_execution_api import create_code_execution_api
 # Pydantic imports
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
@@ -181,7 +181,9 @@ logger.info("Speech API routes registered")
 create_file_processing_api(app)
 logger.info("File Processing API routes registered")
 
-
+# create_code_execution_api(app)
+create_code_execution_api(app)
+logger.info("Code Execution API routes registered")
 
 api_key = os.environ.get("GOOGLE_API_KEY", "MISSING_API_KEY")
 
