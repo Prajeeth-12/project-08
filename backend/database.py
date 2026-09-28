@@ -1,7 +1,6 @@
 from collections.abc import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
-
 from backend.config import settings
 
 # Initialize our primary async database engine
@@ -19,7 +18,31 @@ AsyncSessionLocal = async_sessionmaker(
     autocommit=False,
     autoflush=False,
 )
+# Separate database engine for the Supabase question bank
+question_bank_engine = create_async_engine(
+    settings.QUESTION_BANK_DATABASE_URL,
+    echo=False,
+    pool_pre_ping=True,
+) if settings.QUESTION_BANK_DATABASE_URL else None
 
+QuestionBankSessionLocal = (
+    async_sessionmaker(
+        bind=question_bank_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+    if question_bank_engine
+    else None
+)
+
+
+async def get_question_bank_db() -> AsyncGenerator[AsyncSession, None]:
+    if QuestionBankSessionLocal is None:
+        raise RuntimeError("Question bank database URL is not configured")
+
+    async with QuestionBankSessionLocal() as session:
+        yield session
 # Declarative base model for all our platform entities
 Base = declarative_base()
 
