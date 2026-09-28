@@ -152,6 +152,28 @@ def create_agent_api(app):
         except Exception as e:
             logger.exception(f"Error saving session {session_id} after {operation}: {e}")
 
+    async def _update_scorecard_async(session_manager, current_user) -> None:
+        """V3.6: update cross-session scorecard after interview ends."""
+        try:
+            user_id = current_user["id"] if current_user else None
+            if not user_id:
+                return
+            summary = getattr(session_manager, "final_summary", None) or {}
+            if not summary:
+                return
+            from backend.database.scorecard_store import upsert_scorecard
+            await upsert_scorecard(
+                user_id=user_id,
+                session_id=session_manager.session_id,
+                overall_score=summary.get("overall_score", 0.0),
+                dimension_scores=summary.get("dimension_scores", {}),
+                readiness_score=summary.get("readiness_score", 0.0),
+                rubric_band=summary.get("rubric_band", "Developing"),
+                role=getattr(session_manager, "session_config", {}).job_role if hasattr(session_manager, "session_config") else "",
+            )
+        except Exception as e:
+            logger.debug(f"Scorecard update skipped: {type(e).__name__}")
+
     @router.post("/session", response_model=SessionResponse)
     async def create_session(
         start_request: InterviewStartRequest,
@@ -277,8 +299,11 @@ def create_agent_api(app):
             final_session_results = session_manager.end_interview()
             logger.info(f"Session {session_manager.session_id} ended with results")
 
-            # FIXED: Make database save non-blocking to improve response time
+            # Make database save non-blocking
             asyncio.create_task(_save_session_async(session_registry, session_manager.session_id, "end_interview"))
+
+            # V3.6: update cross-session scorecard (best-effort, non-blocking)
+            asyncio.create_task(_update_scorecard_async(session_manager, current_user))
 
             # FIXED: Return per-turn feedback immediately for instant UX
             # Check if final summary is already available (rare but possible)
@@ -570,5 +595,14 @@ def create_agent_api(app):
                 message="Session cleanup failed due to error"
             )
 
+    @router.get("/scorecard/history")
+    async def get_scorecard_history(
+        current_user: Dict[str, Any] = Depends(get_current_user),
+        limit: int = 10,
+    ):
+        """V3.6: get candidate's cross-session scorecard history."""
+        from backend.database.scorecard_store import get_scorecard_history
+        return await get_scorecard_history(current_user["id"], limit=limit)
+
     app.include_router(router)
-    logger.info("Agent API routes registered") 
+    logger.info("Agent API routes registered")

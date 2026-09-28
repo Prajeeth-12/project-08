@@ -416,6 +416,15 @@ async def startup_event():
         if _TEAM_B_ROUTES_AVAILABLE:
             await init_db()  # Initialize SQLAlchemy tables for team-B endpoints
             logger.info("✅ Team-B SQLAlchemy tables initialized")
+
+        # V2.9: schedule monthly data retention cleanup (prod: use ECS scheduled task)
+        if os.getenv("RUN_RETENTION_ON_STARTUP", "false").lower() == "true":
+            try:
+                from backend.services.retention import run_retention_cleanup
+                summary = await run_retention_cleanup(dry_run=False)
+                logger.info(f"✅ Data retention: {summary}")
+            except Exception as e:
+                logger.warning(f"Retention cleanup skipped: {type(e).__name__}")
         session_registry = get_session_registry()
         app.state.agent_manager = session_registry
         

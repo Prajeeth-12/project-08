@@ -208,7 +208,7 @@ class CandidateAnswer(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     question_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("interview_questions.id", ondelete="CASCADE"), nullable=False)
     session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("interview_sessions.id", ondelete="CASCADE"), nullable=False)
-    answer_text: Mapped[Optional[str]] = mapped_column(Text)               # encrypted at app layer in V2
+    answer_text: Mapped[Optional[str]] = mapped_column(Text)               # stored encrypted via encrypt_field()
     transcript_status: Mapped[str] = mapped_column(String(50), default="pending")  # pending|complete|partial
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
