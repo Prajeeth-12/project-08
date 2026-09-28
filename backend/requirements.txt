@@ -122,3 +122,4 @@ win32_setctime==1.2.0
 xxhash==3.5.0
 yarl==1.20.0
 google-genai==1.74.0
+httpx==0.28.1

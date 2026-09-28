@@ -1,8 +1,9 @@
+
 import os
 import time
 import base64
 
-import requests
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -20,23 +21,15 @@ LANGUAGE_IDS = {
     "c": 50,
 }
 
-# Polling: 40 polls * 0.5s = 20s max wait per test case
 POLL_INTERVAL_SECONDS = 0.5
 MAX_POLLS = 40
 
-# Judge0 status ids
 STATUS_IN_QUEUE = 1
 STATUS_PROCESSING = 2
 STATUS_ACCEPTED = 3
 STATUS_TIME_LIMIT_EXCEEDED = 5
 STATUS_COMPILATION_ERROR = 6
 
-# 7  = Runtime Error (SIGSEGV)
-# 8  = Runtime Error (SIGXFSZ)
-# 9  = Runtime Error (SIGFPE)
-# 10 = Runtime Error (SIGABRT)
-# 11 = Runtime Error (NZEC)  <- e.g. uncaught Python exception
-# 12 = Runtime Error (Other)
 RUNTIME_ERROR_STATUSES = {7, 8, 9, 10, 11, 12}
 
 
@@ -45,39 +38,61 @@ class SubmitRequest(BaseModel):
     language: str
     source_code: str
 
+
 class RunRequest(BaseModel):
     question_id: str
     language: str
     source_code: str
     test_cases: list[dict[str, str]]
 
+
 def _normalize_output(output: str | None) -> str:
-    """
-    Normalize output before comparing it with expected output.
-    - Windows/old-Mac newlines are converted to "\\n"
-    - Trailing spaces on each line are ignored
-    - Leading/trailing blank lines are ignored
-    """
     if output is None:
         return ""
 
     text = output.replace("\r\n", "\n").replace("\r", "\n")
 
-    return "\n".join(line.rstrip() for line in text.split("\n")).strip()
+    return "\n".join(
+        line.rstrip() for line in text.split("\n")
+    ).strip()
 
 
 def _decode_base64(value: str | None) -> str:
-    """
-    Decode a Base64-encoded Judge0 response value.
-    Invalid UTF-8 bytes are replaced instead of leaking raw Base64.
-    """
     if not value:
         return ""
 
     try:
-        return base64.b64decode(value).decode("utf-8", errors="replace")
-    except ValueError:
+        return base64.b64decode(value).decode(
+            "utf-8",
+            errors="replace",
+        )
+    except (ValueError, TypeError):
         return value
+
+
+def _get_judge0_config():
+    judge0_url = os.getenv("JUDGE0_URL", "").rstrip("/")
+    auth_header = os.getenv(
+        "JUDGE0_AUTH_HEADER",
+        "X-Auth-Token",
+    )
+    auth_token = os.getenv("JUDGE0_AUTH_TOKEN", "")
+
+    if not judge0_url:
+        raise HTTPException(
+            status_code=500,
+            detail="JUDGE0_URL is not configured",
+        )
+
+    if not auth_token:
+        raise HTTPException(
+            status_code=500,
+            detail="JUDGE0_AUTH_TOKEN is not configured",
+        )
+
+    return judge0_url, {
+        auth_header: auth_token,
+    }
 
 
 def _execute_test_case(
@@ -85,14 +100,7 @@ def _execute_test_case(
     language: str,
     test_case: dict,
 ) -> dict:
-    """
-    Execute one hidden test case using Judge0.
-    """
-
-    judge0_url = os.getenv(
-        "JUDGE0_URL",
-        "https://ce.judge0.com",
-    ).rstrip("/")
+    judge0_url, headers = _get_judge0_config()
 
     language_id = LANGUAGE_IDS[language]
 
@@ -106,12 +114,11 @@ def _execute_test_case(
         ).decode("utf-8"),
     }
 
-    # ---------------------------------------------------------
     # 1. Create Judge0 submission
-    # ---------------------------------------------------------
     try:
-        response = requests.post(
+        response = httpx.post(
             f"{judge0_url}/submissions",
+            headers=headers,
             params={
                 "base64_encoded": "true",
                 "wait": "false",
@@ -119,10 +126,10 @@ def _execute_test_case(
             json=submission,
             timeout=10,
         )
-    except requests.RequestException as exc:
+    except httpx.RequestError:
         raise HTTPException(
             status_code=502,
-            detail=f"Judge0 request failed: {exc}",
+            detail="Could not connect to Judge0",
         )
 
     if response.status_code != 201:
@@ -145,23 +152,21 @@ def _execute_test_case(
             detail="Judge0 did not return a submission token",
         )
 
-    # ---------------------------------------------------------
     # 2. Poll Judge0 until execution finishes
-    # ---------------------------------------------------------
     for _ in range(MAX_POLLS):
-
         time.sleep(POLL_INTERVAL_SECONDS)
 
         try:
-            result_response = requests.get(
+            result_response = httpx.get(
                 f"{judge0_url}/submissions/{token}",
+                headers=headers,
                 params={"base64_encoded": "true"},
                 timeout=10,
             )
-        except requests.RequestException as exc:
+        except httpx.RequestError:
             raise HTTPException(
                 status_code=502,
-                detail=f"Failed to get Judge0 result: {exc}",
+                detail="Failed to get Judge0 result",
             )
 
         if result_response.status_code != 200:
@@ -185,11 +190,12 @@ def _execute_test_case(
         status = result.get("status") or {}
         status_id = status.get("id")
 
-        # Still running -> keep polling
-        if status_id in (STATUS_IN_QUEUE, STATUS_PROCESSING):
+        if status_id in (
+            STATUS_IN_QUEUE,
+            STATUS_PROCESSING,
+        ):
             continue
 
-        # Compilation error
         if status_id == STATUS_COMPILATION_ERROR:
             return {
                 "status": "compilation_error",
@@ -198,22 +204,26 @@ def _execute_test_case(
                 ),
             }
 
-        # Time limit exceeded
         if status_id == STATUS_TIME_LIMIT_EXCEEDED:
-            return {"status": "time_limit_exceeded"}
+            return {
+                "status": "time_limit_exceeded",
+            }
 
-        # Runtime errors
         if status_id in RUNTIME_ERROR_STATUSES:
             return {
                 "status": "runtime_error",
-                "error": _decode_base64(result.get("stderr")),
+                "error": _decode_base64(
+                    result.get("stderr")
+                ),
             }
 
-        # Accepted (ran successfully) -> compare output ourselves
         if status_id == STATUS_ACCEPTED:
-
-            actual_output = _decode_base64(result.get("stdout"))
-            expected_output = str(test_case["expected_output"])
+            actual_output = _decode_base64(
+                result.get("stdout")
+            )
+            expected_output = str(
+                test_case["expected_output"]
+            )
 
             if (
                 _normalize_output(actual_output)
@@ -229,8 +239,6 @@ def _execute_test_case(
                 "actual_output": actual_output,
             }
 
-        # Unexpected Judge0 status (internal error, exec format error, ...)
-        # NOTE: "message" is Base64-encoded too, so it must be decoded.
         return {
             "status": "runtime_error",
             "error": (
@@ -240,7 +248,6 @@ def _execute_test_case(
             ),
         }
 
-    # Judge0 did not finish within the polling period
     raise HTTPException(
         status_code=504,
         detail="Code execution timed out",
@@ -249,15 +256,12 @@ def _execute_test_case(
 
 @router.post("/submit")
 def submit_code(request: SubmitRequest):
-
-    # 1. Validate source code
     if not request.source_code.strip():
         raise HTTPException(
             status_code=400,
             detail="Source code cannot be empty",
         )
 
-    # 2. Validate language
     language = request.language.lower()
 
     if language not in LANGUAGE_IDS:
@@ -266,8 +270,9 @@ def submit_code(request: SubmitRequest):
             detail=f"Unsupported language: {request.language}",
         )
 
-    # 3. Get hidden test cases
-    hidden_test_cases = get_hidden_test_cases(request.question_id)
+    hidden_test_cases = get_hidden_test_cases(
+        request.question_id
+    )
 
     if not hidden_test_cases:
         raise HTTPException(
@@ -279,13 +284,13 @@ def submit_code(request: SubmitRequest):
         )
 
     total = len(hidden_test_cases)
-
-    # 4. Execute every hidden test case
     results = []
     passed_test_cases = 0
 
-    for index, test_case in enumerate(hidden_test_cases, start=1):
-
+    for index, test_case in enumerate(
+        hidden_test_cases,
+        start=1,
+    ):
         execution_result = _execute_test_case(
             source_code=request.source_code,
             language=language,
@@ -302,7 +307,8 @@ def submit_code(request: SubmitRequest):
                 "passed_test_cases": 0,
                 "error": "Compilation failed",
                 "compiler_output": execution_result.get(
-                    "compiler_output", ""
+                    "compiler_output",
+                    "",
                 ),
             }
 
@@ -311,6 +317,7 @@ def submit_code(request: SubmitRequest):
                 "test_case": index,
                 "status": "time_limit_exceeded",
             })
+
             return {
                 "status": "time_limit_exceeded",
                 "passed": False,
@@ -324,6 +331,7 @@ def submit_code(request: SubmitRequest):
                 "test_case": index,
                 "status": "runtime_error",
             })
+
             return {
                 "status": "runtime_error",
                 "passed": False,
@@ -341,13 +349,11 @@ def submit_code(request: SubmitRequest):
             })
             continue
 
-        # Wrong answer (hidden test -> don't leak actual/expected output)
         results.append({
             "test_case": index,
             "status": "wrong_answer",
         })
 
-    # 5. Final submission result
     all_passed = passed_test_cases == total
 
     return {
@@ -357,9 +363,10 @@ def submit_code(request: SubmitRequest):
         "passed_test_cases": passed_test_cases,
         "results": results,
     }
+
+
 @router.post("/run")
 def run_code(request: RunRequest):
-
     if not request.source_code.strip():
         raise HTTPException(
             status_code=400,
@@ -387,7 +394,6 @@ def run_code(request: RunRequest):
         request.test_cases,
         start=1,
     ):
-
         if "input" not in test_case:
             raise HTTPException(
                 status_code=400,
@@ -487,6 +493,7 @@ def run_code(request: RunRequest):
         "passed_test_cases": passed_test_cases,
         "results": results,
     }
+
 
 def create_code_execution_api(app):
     app.include_router(
