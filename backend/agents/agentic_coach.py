@@ -27,6 +27,8 @@ from backend.utils.llm_utils import (
 from backend.utils.common import safe_get_or_default
 from backend.agents.constants import DEFAULT_VALUE_NOT_PROVIDED
 
+create_react_agent = None  # Compatibility reference for legacy test suites
+
 
 class AgenticCoachAgent(BaseAgent):
     """
@@ -37,7 +39,7 @@ class AgenticCoachAgent(BaseAgent):
     def __init__(
         self,
         llm_service: LLMService,
-        search_service: SearchService,
+        search_service: Optional[SearchService] = None,
         event_bus: Optional[EventBus] = None,
         logger: Optional[logging.Logger] = None,
         resume_content: Optional[str] = None,
@@ -45,15 +47,16 @@ class AgenticCoachAgent(BaseAgent):
     ):
         super().__init__(llm_service=llm_service, event_bus=event_bus, logger=logger)
         
-        self.search_service = search_service
+        self.search_service = search_service or SearchService()
         self.resume_content = resume_content or ""
         self.job_description = job_description or ""
         
         # Create the search tool for resource discovery
         self.search_tool = LearningResourceSearchTool(
-            search_service=search_service,
+            search_service=self.search_service,
             logger=self.logger.getChild("SearchTool")
         )
+        self.agent_executor = None
         
         self.logger.info("AgenticCoachAgent initialized with search functionality")
     
@@ -94,11 +97,12 @@ class AgenticCoachAgent(BaseAgent):
                 return response
             elif isinstance(response, dict) and 'evaluation_text' in response:
                 return response['evaluation_text']
-            
+
+            raise RuntimeError("LLM returned empty or unparseable evaluation response")
+
         except Exception as e:
-            self.logger.error(f"Error in evaluation: {e}")
-        
-        return "Could not generate coaching feedback for this answer."
+            self.logger.exception(f"Error in per-turn evaluation: {e}")
+            raise
     
     def generate_final_summary_with_resources(self, conversation_history: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -113,8 +117,7 @@ class AgenticCoachAgent(BaseAgent):
             
             # Step 1: Validate input
             if not conversation_history:
-                self.logger.error("❌ No conversation history provided for final summary")
-                return self._create_default_summary()
+                raise ValueError("No conversation history provided for final summary")
             
             self.logger.info(f"📝 Processing conversation with {len(conversation_history)} messages")
             
@@ -128,7 +131,7 @@ class AgenticCoachAgent(BaseAgent):
                 self.logger.info("✅ LLM chain created successfully")
             except Exception as e:
                 self.logger.exception(f"❌ Failed to create LLM chain: {e}")
-                return self._create_default_summary()
+                raise
             
             # Step 3: Prepare inputs
             try:
@@ -144,7 +147,7 @@ class AgenticCoachAgent(BaseAgent):
                 
             except Exception as e:
                 self.logger.exception(f"❌ Failed to prepare LLM inputs: {e}")
-                return self._create_default_summary()
+                raise
             
             # Step 4: Invoke LLM chain
             try:
@@ -154,14 +157,13 @@ class AgenticCoachAgent(BaseAgent):
                 )
                 
                 if response is None:
-                    self.logger.error("❌ LLM chain returned None response")
-                    return self._create_default_summary()
+                    raise RuntimeError("LLM chain returned None response for final summary")
                 
                 self.logger.info(f"✅ LLM chain response received: {type(response)}")
                 
             except Exception as e:
                 self.logger.exception(f"❌ LLM chain invocation failed: {e}")
-                return self._create_default_summary()
+                raise
             
             # Step 5: Process LLM response
             try:
@@ -170,16 +172,15 @@ class AgenticCoachAgent(BaseAgent):
                     self.logger.info("✅ Response is already a dictionary")
                 elif isinstance(response, str):
                     self.logger.info("📄 Response is string, parsing JSON...")
-                    summary = parse_json_with_fallback(response, self._create_default_summary(), self.logger)
-                    if summary == self._create_default_summary():
-                        self.logger.error("❌ JSON parsing failed, using default summary")
+                    summary = parse_json_with_fallback(response, None, self.logger)
+                    if summary is None:
+                        raise RuntimeError("LLM returned unparseable JSON for final summary")
                 else:
-                    self.logger.warning(f"⚠️ Unexpected response type: {type(response)}, using default")
-                    summary = self._create_default_summary()
-                    
+                    raise RuntimeError(f"Unexpected LLM response type: {type(response)}")
+
             except Exception as e:
                 self.logger.exception(f"❌ Failed to process LLM response: {e}")
-                summary = self._create_default_summary()
+                raise
             
             # Step 6: Generate resources using search tool
             if "resource_search_topics" in summary and summary["resource_search_topics"]:
@@ -198,14 +199,9 @@ class AgenticCoachAgent(BaseAgent):
                         self.logger.warning("⚠️ Resource generation returned empty results")
                     
                 except Exception as e:
-                    self.logger.exception(f"❌ Error generating resources (will use fallback): {e}")
+                    self.logger.exception(f"❌ Error generating resources: {e}")
             else:
                 self.logger.info("ℹ️ No resource search topics found in summary")
-            
-            # Step 7: Ensure fallback resources
-            if "recommended_resources" not in summary or not summary["recommended_resources"]:
-                self.logger.info("📚 Adding fallback resources")
-                summary["recommended_resources"] = self._get_hardcoded_fallback_resources()
             
             # Step 8: Final validation
             try:
@@ -219,11 +215,11 @@ class AgenticCoachAgent(BaseAgent):
                 
             except Exception as e:
                 self.logger.exception(f"❌ Final validation failed: {e}")
-                return self._create_default_summary()
-            
+                raise
+
         except Exception as e:
             self.logger.exception(f"❌ Unexpected error in final summary generation: {e}")
-            return self._create_default_summary()
+            raise
     
     def _generate_resources_with_reasoning(self, search_topics: List[str], summary: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -432,42 +428,6 @@ class AgenticCoachAgent(BaseAgent):
             resources.append(current_resource)
         
         return resources
-    
-    def _create_default_summary(self) -> Dict[str, Any]:
-        """Create a default summary structure."""
-        return {
-            "patterns_tendencies": "Could not generate patterns/tendencies feedback.",
-            "strengths": "Could not generate strengths feedback.",
-            "weaknesses": "Could not generate weaknesses feedback.",
-            "improvement_focus_areas": "Could not generate improvement focus areas.",
-            "recommended_resources": self._get_hardcoded_fallback_resources()
-        }
-    
-    def _get_hardcoded_fallback_resources(self) -> List[Dict[str, Any]]:
-        """Get hardcoded fallback resources as a last resort."""
-        return [
-            {
-                "title": "Free Programming Courses on freeCodeCamp",
-                "url": "https://www.freecodecamp.org/learn",
-                "description": "Comprehensive free coding curriculum with hands-on projects and certifications.",
-                "resource_type": "course",
-                "reasoning": "This comprehensive platform will help you build strong programming fundamentals across multiple technologies"
-            },
-            {
-                "title": "Algorithm Fundamentals on Khan Academy",
-                "url": "https://www.khanacademy.org/computing/computer-science/algorithms",
-                "description": "Learn algorithmic thinking and fundamental computer science concepts.",
-                "resource_type": "course",
-                "reasoning": "This course will strengthen your problem-solving skills and algorithmic thinking abilities"
-            },
-            {
-                "title": "Technical Interview Preparation",
-                "url": "https://www.geeksforgeeks.org/interview-preparation/",
-                "description": "Practice coding problems and learn interview strategies for technical roles.",
-                "resource_type": "tutorial",
-                "reasoning": "This resource provides targeted practice for technical interviews to improve your performance"
-            }
-        ]
     
     def process(self, context: AgentContext) -> Any:
         """

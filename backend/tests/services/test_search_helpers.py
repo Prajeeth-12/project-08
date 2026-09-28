@@ -184,7 +184,7 @@ class TestDomainQualityEvaluator:
         test_cases = [
             ("https://stackoverflow.com/questions/python", 1.0),
             ("https://mdn.mozilla.org/docs", 1.0),
-            ("https://tutorialspoint.com/python", 0.7),
+            ("https://guru99.com/python", 0.7),
             ("https://random-blog.com/python", 0.4)
         ]
         

@@ -42,7 +42,7 @@ export interface InterviewStartRequest {
 
 // Speech recognition types
 export interface SpeechTranscriptionEvent {
-  type: 'transcript' | 'error' | 'connected' | 'speech_started' | 'utterance_end' | 'audio' | 'barge_in' | 'turn_ended';
+  type: 'transcript' | 'error' | 'connected' | 'speech_started' | 'utterance_end' | 'audio' | 'turn_ended' | 'renewed' | 'interview_ending';
   text?: string;
   is_final?: boolean;
   error?: string;
@@ -50,10 +50,11 @@ export interface SpeechTranscriptionEvent {
   timestamp?: string | number;
   event_time?: string;
   last_spoken_at?: number;
-  data?: string; // base64 audio chunk from Amazon Nova 2 Sonic
+  data?: string; // base64 audio chunk from Amazon Nova 2 Sonic / Gemini Live
   role?: 'user' | 'assistant';
   stop_reason?: string;
   engine?: string;
+  state?: any;
 }
 
 export interface StreamingSpeechOptions {
@@ -65,8 +66,9 @@ export interface StreamingSpeechOptions {
   onSpeechStarted?: (timestamp: number) => void;
   onUtteranceEnd?: (lastSpokenAt: number) => void;
   onAudioChunk?: (base64Audio: string) => void;
-  onBargeIn?: () => void;
   onTurnEnded?: (stopReason: string) => void;
+  onInterviewEnding?: (state?: any) => void;
+  onUserSpeaking?: (isSpeaking: boolean) => void;
 }
 
 export class StreamingSpeechRecognition {
@@ -76,13 +78,37 @@ export class StreamingSpeechRecognition {
   private audioContext: AudioContext | null = null;
   private processor: ScriptProcessorNode | null = null;
   private inputSource: MediaStreamAudioSourceNode | null = null;
-  private mediaRecorder: MediaRecorder | null = null;
   private options: StreamingSpeechOptions;
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 3;
+  private isMuted: boolean = false;
 
   constructor(options: StreamingSpeechOptions) {
     this.options = options;
+  }
+
+  getMediaStream(): MediaStream | null {
+    return this.mediaStream;
+  }
+
+  // No-op kept for compatibility (barge-in removed)
+  setAiSpeaking(_speaking: boolean): void {}
+
+  setMuted(muted: boolean): void {
+    this.isMuted = muted;
+  }
+
+  sendTranscript(text: string): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && text.trim()) {
+      this.ws.send(JSON.stringify({ type: 'transcript', text }));
+    }
+  }
+
+  sendEndOfTurn(): void {
+    const now = Date.now();
+    if (now - this.vadTriggeredAt < 3000) return;  // shared debounce with VAD
+    this.vadTriggeredAt = now;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'client_turn_complete' }));
+    }
   }
 
   async start(): Promise<void> {
@@ -92,7 +118,7 @@ export class StreamingSpeechRecognition {
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
+          autoGainControl: false  // manual 4× gain applied in resampleTo16kHz; AGC fights it and clips
         }
       });
       
@@ -100,7 +126,7 @@ export class StreamingSpeechRecognition {
       await this.connectWebSocket();
       
       // Start recording and streaming audio
-      this.startRecording();
+      await this.startRecording();
       
       return Promise.resolve();
     } catch (error) {
@@ -123,14 +149,6 @@ export class StreamingSpeechRecognition {
       this.audioContext = null;
     }
 
-    // Stop MediaRecorder fallback if active
-    if (this.mediaRecorder) {
-      try {
-        this.mediaRecorder.stop();
-      } catch (e) {}
-      this.mediaRecorder = null;
-    }
-    
     // Stop microphone stream tracks
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach(track => track.stop());
@@ -183,11 +201,6 @@ export class StreamingSpeechRecognition {
                 this.options.onAudioChunk(data.data);
               }
               break;
-            case 'barge_in':
-              if (this.options.onBargeIn) {
-                this.options.onBargeIn();
-              }
-              break;
             case 'turn_ended':
               if (this.options.onTurnEnded) {
                 this.options.onTurnEnded(data.stop_reason || 'END_TURN');
@@ -211,6 +224,11 @@ export class StreamingSpeechRecognition {
             case 'connected':
               this.options.onConnected();
               break;
+            case 'interview_ending':
+              if (this.options.onInterviewEnding) {
+                this.options.onInterviewEnding(data.state);
+              }
+              break;
           }
         } catch (error) {
           console.error('Error processing Nova Sonic message:', error);
@@ -227,50 +245,123 @@ export class StreamingSpeechRecognition {
     }
   }
 
-  private startRecording(): void {
+  // VAD for end-of-speech detection
+  private vadSpeechFrames: number = 0;
+  private vadSilenceFrames: number = 0;
+  private readonly VAD_SPEECH_THRESHOLD: number = 0.04; // after 4x gain
+  private readonly VAD_MIN_SPEECH_FRAMES: number = 8;   // ~0.7s min speech
+  private readonly VAD_SILENCE_FRAMES: number = 76;     // ~6.5s silence = end of turn
+  private vadTriggeredAt: number = 0;
+
+  // 4× gain with tanh soft-saturation: mic RMS of 0.008–0.030 becomes 0.032–0.120, avoiding hard clipping
+  private readonly MIC_GAIN = 4.0;
+
+  private resampleTo16kHz(input: Float32Array, sampleRate: number): Int16Array {
+    if (sampleRate === 16000) {
+      const pcm16 = new Int16Array(input.length);
+      for (let i = 0; i < input.length; i++) {
+        const saturated = Math.tanh(input[i] * this.MIC_GAIN);
+        pcm16[i] = saturated < 0 ? saturated * 0x8000 : saturated * 0x7FFF;
+      }
+      return pcm16;
+    }
+
+    const ratio = sampleRate / 16000;
+    const outLength = Math.floor(input.length / ratio);
+    const pcm16 = new Int16Array(outLength);
+
+    for (let i = 0; i < outLength; i++) {
+      const origPos = i * ratio;
+      const index = Math.floor(origPos);
+      const frac = origPos - index;
+      const s1 = input[index] || 0;
+      const s2 = index + 1 < input.length ? input[index + 1] : s1;
+      const interpolated = s1 + frac * (s2 - s1);
+      const saturated = Math.tanh(interpolated * this.MIC_GAIN);
+      pcm16[i] = saturated < 0 ? saturated * 0x8000 : saturated * 0x7FFF;
+    }
+    return pcm16;
+  }
+
+  private async startRecording(): Promise<void> {
     if (!this.mediaStream || !this.isConnected) return;
     
     try {
-      // Use Web Audio API to stream 16kHz 16-bit linear PCM directly to Nova Sonic
+      // Use Web Audio API to capture microphone audio
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      this.audioContext = new AudioCtx({ sampleRate: 16000 });
+      this.audioContext = new AudioCtx();
+      if (this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
+      }
       this.inputSource = this.audioContext.createMediaStreamSource(this.mediaStream);
-      // 2048 samples at 16kHz = ~128ms frames
-      this.processor = this.audioContext.createScriptProcessor(2048, 1, 1);
+      // 2048 or 4096 samples buffer
+      const bufferSize = this.audioContext.sampleRate > 32000 ? 4096 : 2048;
+      this.processor = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
       
+      const currentSampleRate = this.audioContext.sampleRate;
+      console.log(`🎙️ Recording started at native sample rate: ${currentSampleRate}Hz (resampling to 16kHz PCM)`);
+
+      let pcmFrameCounter = 0;
       this.processor.onaudioprocess = (e) => {
         if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+        if (this.isMuted) return;
+
         const input = e.inputBuffer.getChannelData(0);
-        const pcm16 = new Int16Array(input.length);
-        for (let i = 0; i < input.length; i++) {
-          const s = Math.max(-1, Math.min(1, input[i]));
-          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-        }
+
+        // RMS for VAD
+        let sumSquares = 0;
+        for (let i = 0; i < input.length; i++) sumSquares += input[i] * input[i];
+        const rms = Math.sqrt(sumSquares / input.length);
+
+        // Always send audio to Gemini (no barge-in gating — turn-based)
+        const pcm16 = this.resampleTo16kHz(input, currentSampleRate);
         this.ws.send(pcm16.buffer);
+        pcmFrameCounter++;
+        if (pcmFrameCounter % 60 === 0) {
+          console.log(`🎤 Audio to AI (RMS: ${rms.toFixed(3)})`);
+        }
+
+        // Client VAD: detect speech/silence and signal Gemini when user finishes
+        const boostedRms = rms * this.MIC_GAIN;
+        const wasSpeaking = this.vadSpeechFrames > 0 && this.vadSilenceFrames === 0;
+        if (boostedRms >= this.VAD_SPEECH_THRESHOLD) {
+          this.vadSpeechFrames++;
+          this.vadSilenceFrames = 0;
+          if (!wasSpeaking && this.vadSpeechFrames === 1) {
+            this.options.onUserSpeaking?.(true);
+          }
+        } else if (this.vadSpeechFrames >= this.VAD_MIN_SPEECH_FRAMES) {
+          this.vadSilenceFrames++;
+          if (this.vadSilenceFrames === 1) {
+            this.options.onUserSpeaking?.(false);
+          }
+          if (this.vadSilenceFrames >= this.VAD_SILENCE_FRAMES) {
+            const now = Date.now();
+            if (now - this.vadTriggeredAt > 3000) {
+              this.vadTriggeredAt = now;
+              console.log(`🗣️ VAD: end-of-speech (${this.vadSpeechFrames} frames) → signalling Gemini`);
+              this.ws.send(JSON.stringify({ type: 'client_turn_complete' }));
+            }
+            this.vadSpeechFrames = 0;
+            this.vadSilenceFrames = 0;
+          }
+        } else {
+          if (this.vadSpeechFrames > 0) this.options.onUserSpeaking?.(false);
+          this.vadSpeechFrames = 0;
+          this.vadSilenceFrames = 0;
+        }
       };
       
+      // Connect through a zero-gain node to destination so onaudioprocess runs
+      // WITHOUT routing microphone audio back through the device speakers
+      const silentGain = this.audioContext.createGain();
+      silentGain.gain.value = 0;
       this.inputSource.connect(this.processor);
-      this.processor.connect(this.audioContext.destination);
+      this.processor.connect(silentGain);
+      silentGain.connect(this.audioContext.destination);
     } catch (err) {
-      console.warn('Web Audio PCM capture unavailable, using MediaRecorder fallback:', err);
-      try {
-        this.mediaRecorder = new MediaRecorder(this.mediaStream, { mimeType: 'audio/webm' });
-        this.mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0 && this.ws && this.isConnected && this.ws.readyState === WebSocket.OPEN) {
-            const reader = new FileReader();
-            reader.onload = () => {
-              if (this.ws && this.isConnected && reader.result) {
-                this.ws.send(reader.result);
-              }
-            };
-            reader.readAsArrayBuffer(event.data);
-          }
-        };
-        this.mediaRecorder.start(100);
-      } catch (recError) {
-        console.error('Error starting MediaRecorder fallback:', recError);
-        this.options.onError(`Failed to start audio recording: ${recError}`);
-      }
+      console.error('Web Audio PCM capture unavailable:', err);
+      this.options.onError('Microphone capture is not supported on this browser. Please use Chrome or Firefox.');
     }
   }
 }

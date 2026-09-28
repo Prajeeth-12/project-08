@@ -30,24 +30,24 @@ Focus on what they did well and what they could improve, as if you were talking 
 {justification}
 ---
 
-**Your Conversational Coaching Feedback:**
+**Your Coaching Feedback:**
 
-Provide your feedback as a single, flowing text. Imagine you are speaking directly to the candidate.
-Be encouraging but also direct about areas for improvement.
-Consider aspects like clarity, conciseness, completeness, relevance to the question, and how well they leveraged their experience (from resume/job description context if applicable).
-If the question was behavioral, you might touch upon how well they structured their story (e.g., using STAR principles) without being overly rigid.
+Provide EXACTLY 2-3 short bullet points. Each bullet should be one clear sentence. Be direct and specific.
 
-**Example of how to structure your thoughts (but output as a single text block):**
-*   Start with an overall impression.
-*   Highlight 1-2 things they did well.
-*   Point out 1-2 key areas for improvement for THIS answer, with specific suggestions if possible.
-*   Maintain a supportive and constructive tone.
+Format each bullet as: "- **Label:** One sentence feedback."
+
+Rules:
+- First bullet: What the candidate did well (be specific, reference their actual words)
+- Second bullet: The single most important thing to improve (with a concrete suggestion)
+- Third bullet (optional): A quick actionable tip for next time
 
 **Output Format:**
-Return your feedback as a single block of text. Do NOT use JSON or any structured formatting like lists or explicit dimension names.
+Return ONLY the 2-3 bullet points, each on its own line starting with "- **". Nothing else. No intro sentence, no closing sentence.
 
-Example (this is just a conceptual example, your actual feedback will be based on the inputs):
-'I think you started off really strong by clearly stating the situation. The way you described your actions was also quite good and easy to follow. One thing to consider for next time is perhaps to be a bit more concise when you're setting up the initial context – I felt we could have gotten to your specific actions a little quicker. Also, while you mentioned the positive outcome, adding a specific metric or a more concrete result could really make that landing even more impactful. Overall, a solid answer, just a couple of tweaks to make it even better!'
+Example:
+- **Strong opening:** You clearly stated your role and tech stack upfront, which sets good context.
+- **Add metrics:** Instead of saying "built a real-time platform," quantify it — e.g., "serving 10K concurrent users with <50ms latency."
+- **Show impact:** End with what the project achieved for the business, not just what you built.
 """
 
 FINAL_SUMMARY_TEMPLATE = """
@@ -97,16 +97,26 @@ Your goal is to provide holistic feedback, identify patterns, and suggest action
 
 **Output Format:**
 Return your feedback as a JSON object with the following keys: "patterns_tendencies", "strengths", "weaknesses", "improvement_focus_areas", "resource_search_topics".
-The value for "resource_search_topics" should be a list of strings (the search query topics).
-All other values should be your detailed textual feedback.
+The value for "resource_search_topics" should be a list of strings.
+
+CRITICAL FORMATTING RULE: For patterns_tendencies, strengths, weaknesses, and improvement_focus_areas, format each as a markdown bullet list. Each point should be on its own line starting with "- **Bold Title:** Description". Do NOT write paragraphs. Use 3-5 clear bullet points per section.
+
 Make sure the JSON is well-formed.
 Example:
 {{
-    "patterns_tendencies": "Across the interview, you consistently...",
-    "strengths": "A key strength was your ability to... For example, in Q2...",
-    "weaknesses": "One area for development is... This was evident when...",
-    "improvement_focus_areas": "Based on this session, I recommend focusing on: 1. Quantifying results... 2. Structuring behavioral answers...",
-    "resource_search_topics": ["how to optimise SQL queries", "improve interview answer conciseness", "langchain tutorial for chatbot and RAG"]
+    "patterns_tendencies": "- **Concise but shallow answers:** You gave clear high-level overviews but rarely provided depth when probed further.
+- **Strong technical vocabulary:** Correctly used terms like pub/sub, RBAC, optimistic updates throughout.
+- **Avoided quantification:** No metrics or numbers were provided to back up claims.",
+    "strengths": "- **Full-stack breadth:** Demonstrated knowledge across FastAPI, React, Redis, and PostgreSQL.
+- **Security awareness:** Proactively mentioned JWT, RBAC, and parameterized queries.
+- **Problem-solving clarity:** Explained connection drop handling with version-based reconciliation.",
+    "weaknesses": "- **Lack of depth on follow-ups:** When asked about testing strategy and CI/CD, answers were vague or skipped.
+- **No quantifiable impact:** Did not provide latency numbers, user counts, or performance metrics.
+- **Incomplete scenario coverage:** JWT expiry during active WebSocket was not addressed.",
+    "improvement_focus_areas": "- **Practice depth:** Prepare 2-3 levels of detail for each project (overview, architecture, specific challenges).
+- **Quantify everything:** Add metrics to every project story (users, latency, uptime, cost savings).
+- **Prepare edge cases:** Think through failure modes and edge cases before the interview.",
+    "resource_search_topics": ["how to quantify achievements in software engineering interviews", "STAR method for technical behavioral questions", "system design interview depth techniques"]
 }}
 """
 

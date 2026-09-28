@@ -6,11 +6,13 @@ dist/
 build/
 .venv/
 venv/
+venv*/
 env/
 
 # Node / Frontend
 node_modules/
 .next/
+.vite/
 out/
 .turbo/
 *.tsbuildinfo

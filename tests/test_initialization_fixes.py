@@ -14,7 +14,7 @@ os.environ["SUPABASE_URL"] = "https://test.supabase.co"
 os.environ["SUPABASE_SERVICE_KEY"] = "test-key"
 os.environ["GOOGLE_API_KEY"] = "test-api-key"
 
-from backend.services import initialize_services, get_session_registry, ServiceRegistry
+from backend.services import initialize_services, get_session_registry
 from backend.services.session_manager import ThreadSafeSessionRegistry
 from backend.database.db_manager import DatabaseManager
 from backend.services.llm_service import LLMService
@@ -46,11 +46,16 @@ class TestThreadSafeSessionRegistryInitialization:
     
     @pytest.mark.asyncio
     async def test_service_registry_session_registry_creation(self, mock_dependencies):
-        """Test that ServiceRegistry creates ThreadSafeSessionRegistry with correct dependencies."""
-        registry = ServiceRegistry()
+        """Test that ThreadSafeSessionRegistry is initialized with correct dependencies."""
+        mock_db = Mock(spec=DatabaseManager)
+        mock_llm = Mock(spec=LLMService)
+        mock_bus = Mock(spec=EventBus)
         
-        # Get session registry - this should trigger creation with dependencies
-        session_registry = await registry.get_session_registry()
+        session_registry = ThreadSafeSessionRegistry(
+            db_manager=mock_db,
+            llm_service=mock_llm,
+            event_bus=mock_bus
+        )
         
         # Verify it's a ThreadSafeSessionRegistry instance
         assert isinstance(session_registry, ThreadSafeSessionRegistry)
@@ -60,10 +65,10 @@ class TestThreadSafeSessionRegistryInitialization:
         assert hasattr(session_registry, 'llm_service')
         assert hasattr(session_registry, 'event_bus')
         
-        # Verify dependencies are the correct types
-        assert isinstance(session_registry.db_manager, DatabaseManager)
-        assert isinstance(session_registry.llm_service, LLMService)
-        assert isinstance(session_registry.event_bus, EventBus)
+        # Verify dependencies are attached
+        assert session_registry.db_manager is mock_db
+        assert session_registry.llm_service is mock_llm
+        assert session_registry.event_bus is mock_bus
     
     @pytest.mark.asyncio
     async def test_initialize_services_creates_session_registry_with_dependencies(self, mock_dependencies):

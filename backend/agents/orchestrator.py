@@ -18,7 +18,6 @@ from backend.services import get_search_service
 from backend.utils.common import get_current_timestamp
 from backend.agents.constants import (
     ERROR_AGENT_LOAD_FAILED, ERROR_PROCESSING_REQUEST,
-    COACH_FEEDBACK_ERROR, COACH_FEEDBACK_UNAVAILABLE
 )
 
 
@@ -232,11 +231,33 @@ class AgentSessionManager:
         self._get_interviewer().record_turn("user", message)
         self._generate_coaching_feedback(user_msg)
 
+        # Generate real interviewer response via LLM (text-path fallback)
+        try:
+            from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+            llm = self.llm_service.get_llm()
+            system_prompt = self._get_interviewer().get_system_prompt()
+            lc_messages = [SystemMessage(content=system_prompt)]
+            for msg in self.conversation_history:
+                role = msg.get("role", "user")
+                text = msg.get("content", "")
+                if isinstance(text, dict):
+                    text = str(text)
+                if role == "user":
+                    lc_messages.append(HumanMessage(content=text))
+                elif role == "assistant" and msg.get("agent") == "interviewer":
+                    lc_messages.append(AIMessage(content=text))
+            ai_response = llm.invoke(lc_messages)
+            ai_text = ai_response.content if hasattr(ai_response, "content") else str(ai_response)
+        except Exception as e:
+            self.logger.error(f"Text-path LLM call failed: {e}")
+            ai_text = "I appreciate your response. Could you tell me more about your experience?"
+
+        self._get_interviewer().record_turn("assistant", ai_text)
         response_data = {
             "role": "assistant",
             "agent": "interviewer",
-            "content": "Voice interview in progress. Please use the microphone to continue the conversation.",
-            "response_type": "status",
+            "content": ai_text,
+            "response_type": "question",
             "timestamp": datetime.utcnow().isoformat(),
             "metadata": self._get_interviewer().get_state_summary()
         }
@@ -259,7 +280,7 @@ class AgentSessionManager:
                     feedback = self._get_coach_feedback(coach_agent, question, answer)
                     self._log_coach_feedback(question, answer, feedback)
                 else:
-                    self._log_coach_feedback_unavailable(question, answer)
+                    self.logger.warning("Coach agent not available, skipping per-turn feedback")
         except Exception as e:
             self.logger.exception(f"Error generating coaching feedback: {e}")
 
@@ -271,18 +292,13 @@ class AgentSessionManager:
         return None
 
     def _get_coach_feedback(self, coach_agent: AgenticCoachAgent, question: str, answer: str) -> str:
-        try:
-            filtered_history = self._create_filtered_history_for_coach()
-            feedback_response = coach_agent.evaluate_answer(
-                question=question,
-                answer=answer,
-                justification=None,
-                conversation_history=filtered_history
-            )
-            return feedback_response if feedback_response else COACH_FEEDBACK_UNAVAILABLE
-        except Exception as e:
-            self.logger.exception(f"Error getting coach feedback: {e}")
-            return COACH_FEEDBACK_ERROR
+        filtered_history = self._create_filtered_history_for_coach()
+        return coach_agent.evaluate_answer(
+            question=question,
+            answer=answer,
+            justification=None,
+            conversation_history=filtered_history
+        )
 
     def _create_filtered_history_for_coach(self) -> List[Dict[str, Any]]:
         filtered_history = []
@@ -305,8 +321,6 @@ class AgentSessionManager:
             "feedback": feedback
         })
 
-    def _log_coach_feedback_unavailable(self, question: str, answer: str) -> None:
-        self._log_coach_feedback(question, answer, COACH_FEEDBACK_UNAVAILABLE)
 
     # ------------------------------------------------------------------
     # End interview + final summary (background, uses CoachAgent/Gemini)

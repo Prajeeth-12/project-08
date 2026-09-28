@@ -106,36 +106,51 @@ class LLMService:
             if not self.api_key:
                 self.logger.error("Google API key not found. Set GOOGLE_API_KEY environment variable.")
                 raise ValueError("Google API key is required.")
-            self.model_name = model_name or os.environ.get("GOOGLE_MODEL_NAME", "gemini-2.0-flash")
+            self.model_name = model_name or os.environ.get("GOOGLE_MODEL_NAME", "gemini-2.5-flash")
             self.base_url = ""
             self.logger.info(f"LLMService initialized with Gemini provider, model: {self.model_name}")
 
     def get_llm(self) -> BaseChatModel:
+        """Returns the default LLM instance."""
+        return self.get_evaluator_llm() if self.provider == "groq" else self.get_interviewer_llm()
+
+    def get_interviewer_llm(self) -> BaseChatModel:
         """
-        Returns the initialized LLM instance, creating it if necessary.
+        Returns Gemini 2.5 Flash model specifically for the Interviewer Agent.
         """
-        if self._llm is None:
-            try:
-                if self.provider == "groq":
-                    self._llm = ChatGroqViaOpenAI(
-                        model_name=self.model_name,
-                        api_key=self.api_key,
-                        base_url=self.base_url,
-                        temperature=self.temperature,
-                    )
-                    self.logger.info(f"Initialized Groq LLM via OpenAI SDK: {self.model_name}")
-                else:
-                    self._llm = ChatGoogleGenerativeAI(
-                        model=self.model_name,
-                        google_api_key=self.api_key,
-                        temperature=self.temperature,
-                        convert_system_message_to_human=True
-                    )
-                    self.logger.info(f"Initialized ChatGoogleGenerativeAI model: {self.model_name}")
-            except Exception as e:
-                self.logger.exception(f"Failed to initialize LLM: {e}")
-                raise
-        return self._llm
+        google_api_key = os.environ.get("GOOGLE_API_KEY")
+        if not google_api_key:
+            self.logger.error("Google API key not found for Interviewer Agent. Set GOOGLE_API_KEY.")
+            raise ValueError("GOOGLE_API_KEY is required for Interviewer Agent (gemini-2.5-flash).")
+
+        model_name = os.environ.get("GOOGLE_MODEL_NAME", "gemini-2.5-flash")
+        self.logger.info(f"Initializing Interviewer Agent LLM: {model_name}")
+        return ChatGoogleGenerativeAI(
+            model=model_name,
+            google_api_key=google_api_key,
+            temperature=self.temperature,
+            convert_system_message_to_human=True
+        )
+
+    def get_evaluator_llm(self) -> BaseChatModel:
+        """
+        Returns Groq model specifically for the Evaluator / Coach Agent.
+        Falls back to Gemini 2.5 Flash if Groq API key is not configured.
+        """
+        groq_api_key = os.environ.get("GROQ_API_KEY")
+        if groq_api_key and not groq_api_key.startswith("your_"):
+            base_url = os.environ.get("GROQ_BASE_URL", "https://api.groq.com/openai")
+            model_name = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+            self.logger.info(f"Initializing Evaluator Agent LLM with Groq provider: {model_name}")
+            return ChatGroqViaOpenAI(
+                model_name=model_name,
+                api_key=groq_api_key,
+                base_url=base_url,
+                temperature=self.temperature,
+            )
+
+        self.logger.info("GROQ_API_KEY not set for Evaluator Agent — falling back to Gemini 2.5 Flash.")
+        return self.get_interviewer_llm()
 
 
 if __name__ == '__main__':

@@ -40,41 +40,41 @@ class TTSService:
     def _initialize_polly(self):
         """Initialize Amazon Polly client with retry configuration."""
         aws_region = os.environ.get("AWS_REGION")
+        aws_key = os.getenv("AWS_ACCESS_KEY_ID")
+        aws_secret = os.getenv("AWS_SECRET_ACCESS_KEY")
         
-        if not aws_region:
-            logger.warning("AWS_REGION environment variable not set. AWS Polly TTS service will be unavailable.")
+        if not aws_region or not aws_key or not aws_secret or aws_key.startswith("your_"):
+            logger.debug("AWS credentials not configured. Polly TTS service will remain disabled.")
             return
         
         try:
-            # Enhanced boto3 client configuration for Azure deployment
+            # Enhanced boto3 client configuration for connection reuse
             polly_config = Config(
                 retries={
                     'max_attempts': 3,
                     'mode': 'adaptive'
                 },
-                max_pool_connections=50,  # Increased for better connection reuse
+                max_pool_connections=50,
                 region_name=aws_region,
-                # Azure-optimized timeout settings
-                connect_timeout=30,  # Connection timeout
-                read_timeout=60,     # Read timeout for large audio files
-                # Enable TCP keepalive for persistent connections
+                connect_timeout=30,
+                read_timeout=60,
                 tcp_keepalive=True
             )
             
             self.polly_client = boto3.client(
                 "polly",
-                aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-                aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+                aws_access_key_id=aws_key,
+                aws_secret_access_key=aws_secret,
                 config=polly_config
             )
-            logger.info(f"Successfully initialized AWS Polly client in region {aws_region} with Azure-optimized configuration.")
-            logger.info(f"TTS Configuration - Engine: {self.polly_engine}, Default Voice: {self.default_voice}")
+            logger.info(f"Successfully initialized AWS Polly client in region {aws_region}.")
+            logger.debug(f"TTS Configuration - Engine: {self.polly_engine}, Default Voice: {self.default_voice}")
         except (NoCredentialsError, PartialCredentialsError) as e:
-            logger.error(f"AWS credentials not found or incomplete. Please configure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY. Error: {e}")
+            logger.debug(f"AWS credentials not found or incomplete: {e}")
         except ClientError as e:
-            logger.error(f"AWS ClientError initializing Polly client: {e}. Check AWS permissions and region.")
+            logger.warning(f"AWS ClientError initializing Polly client: {e}")
         except Exception as e:
-            logger.error(f"Failed to initialize AWS Polly client: {e}")
+            logger.debug(f"AWS Polly client unavailable: {e}")
     
     def is_available(self) -> bool:
         """Check if TTS service is available."""

@@ -20,14 +20,48 @@ import jwt
 import base64
 import json
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Ensure environment variables are loaded
+_env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+load_dotenv(dotenv_path=_env_path) if os.path.exists(_env_path) else load_dotenv()
 
 from .speech.tts_service import TTSService
-from backend.services.nova_sonic_engine import get_nova_sonic_engine
-from backend.services.gemini_voice_engine import get_gemini_voice_engine
 from backend.database.db_manager import DatabaseManager
 from backend.services.rate_limiting import get_rate_limiter
-from backend.services.session_manager import ThreadSafeSessionRegistry
 from backend.api.auth_api import get_current_user_optional
+
+_DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
+_DEEPGRAM_VOICE = os.getenv("DEEPGRAM_VOICE", "aura-2-asteria-en")
+
+async def deepgram_tts(text: str) -> bytes:
+    """Raw 16kHz Linear PCM via Deepgram TTS — drop-in replacement for Polly."""
+    if not text.strip():
+        return b""
+    endpoint = (
+        "https://api.deepgram.com/v2/speak"
+        if _DEEPGRAM_VOICE.startswith("flux-")
+        else "https://api.deepgram.com/v1/speak"
+    )
+    async with httpx.AsyncClient() as client:
+        r = await client.post(
+            endpoint,
+            params={"model": _DEEPGRAM_VOICE, "encoding": "linear16",
+                    "sample_rate": "16000", "container": "none"},
+            headers={"Authorization": f"Token {_DEEPGRAM_API_KEY}",
+                     "Content-Type": "application/json"},
+            json={"text": text},
+            timeout=30.0,
+        )
+        r.raise_for_status()
+        return r.content
+
+try:
+    from deepgram import DeepgramClient, LiveOptions
+    from deepgram.clients.live.v1.enums import LiveTranscriptionEvents
+    _DEEPGRAM_AVAILABLE = True
+except ImportError:
+    _DEEPGRAM_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -35,14 +69,19 @@ logger = logging.getLogger(__name__)
 tts_service = TTSService()
 rate_limiter = get_rate_limiter()
 
-VOICE_PROVIDER = os.getenv("VOICE_PROVIDER", "nova").lower()
+
+def get_voice_provider() -> str:
+    return "deepgram"
 
 
 def get_voice_engine():
-    """Return the active voice engine based on VOICE_PROVIDER env var."""
-    if VOICE_PROVIDER == "gemini":
-        return get_gemini_voice_engine()
-    return get_nova_sonic_engine()
+    """Stub — voice is now handled by Deepgram STT + TTS directly in the WS handler."""
+    class _DeepgramStub:
+        voice_id = os.getenv("DEEPGRAM_VOICE", "aura-2-asteria-en")
+        def get_status(self):
+            return {"status": "ready", "provider": "deepgram",
+                    "voice": self.voice_id, "stt_model": "nova-3"}
+    return _DeepgramStub()
 
 
 async def get_database_manager() -> DatabaseManager:
@@ -425,160 +464,240 @@ def create_speech_api(app):
             logger.exception(f"Error retrieving task status for {task_id}")
             raise HTTPException(status_code=500, detail=f"Failed to get task status: {str(e)}")
 
-    async def _handle_nova_sonic_stream(
+    async def _handle_deepgram_polly_stream(
         websocket: WebSocket,
         token: Optional[str] = None,
         session_id: Optional[str] = None
     ):
         """
-        Stream handler connecting browser mic audio to Amazon Nova 2 Sonic.
-
-        Nova Sonic is the conversational model. The InterviewerAgent (via
-        AgentSessionManager) provides the system prompt / interview context
-        and tracks interview state. Completed turns are routed through
-        session_manager.record_voice_turn() so the InterviewerAgent can
-        update covered topics, question count, time, and phase.
+        Interview voice stream: Deepgram STT → LLM → Amazon Polly TTS.
+        Browser sends raw PCM16 audio, receives transcript events + PCM audio chunks.
+        Same event protocol as the previous Gemini Live handler so the frontend
+        needs zero changes.
         """
         await websocket.accept()
 
-        user = None
-        if token:
-            user = await validate_websocket_token(token)
-            logger.info(f"WebSocket Nova Sonic connection from {'authenticated' if user else 'anonymous'} user")
-        else:
-            logger.info("WebSocket Nova Sonic connection from anonymous user")
+        if not _DEEPGRAM_AVAILABLE:
+            await websocket.send_json({"type": "error", "error": "deepgram-sdk not installed"})
+            return
 
-        db_manager = await get_database_manager()
-        speech_task_id = None
-        try:
-            speech_task_id = await db_manager.create_speech_task(
-                session_id or "anonymous",
-                "nova_sonic_stream"
-            )
-        except Exception as e:
-            logger.debug(f"Could not create db speech task: {e}")
+        deepgram_api_key = os.getenv("DEEPGRAM_API_KEY", "")
+        if not deepgram_api_key:
+            await websocket.send_json({"type": "error", "error": "DEEPGRAM_API_KEY not configured"})
+            return
 
-        engine = get_voice_engine()
+        # Resolve session manager for LLM context
         session_manager = None
-        system_prompt = ""
-
         if session_id:
             try:
                 from backend.services import get_session_registry
                 session_registry = get_session_registry()
                 session_manager = await session_registry.get_session_manager(session_id)
-                if session_manager:
-                    system_prompt = session_manager.get_interviewer_system_prompt()
             except Exception as e:
-                logger.warning(f"Could not retrieve session {session_id} context: {e}")
+                logger.warning(f"Could not load session {session_id}: {e}")
 
-        # ----- streaming callbacks -----
+        loop = asyncio.get_running_loop()
+        # final user transcripts ready for LLM processing
+        transcript_queue: asyncio.Queue = asyncio.Queue()
+        # outbound JSON messages for the browser
+        ws_send_queue: asyncio.Queue = asyncio.Queue()
 
-        async def on_audio_chunk(b64_audio: str):
+        # ── Deepgram event handlers (sync, called from Deepgram thread) ──
+
+        pending_transcript = [""]  # mutable container so closures can write
+
+        def on_open(self_p, open_event, **kw):
+            loop.call_soon_threadsafe(ws_send_queue.put_nowait, {
+                "type": "connected", "engine": "deepgram+polly", "session_id": session_id or ""
+            })
+
+        def on_transcript(self_p, result, **kw):
             try:
-                await websocket.send_json({"type": "audio", "data": b64_audio})
-            except Exception:
-                pass
+                alt = result.channel.alternatives[0]
+                text = alt.transcript
+                is_final = result.is_final
+                speech_final = getattr(result, "speech_final", False)
 
-        async def on_transcript_chunk(text: str, role: str, is_final: bool):
-            try:
-                await websocket.send_json({
-                    "type": "transcript",
-                    "text": text,
-                    "role": role,
-                    "is_final": is_final
-                })
-            except Exception:
-                pass
+                if text:
+                    loop.call_soon_threadsafe(ws_send_queue.put_nowait, {
+                        "type": "transcript", "role": "user",
+                        "text": text, "is_final": is_final
+                    })
 
-            if is_final and session_manager and text.strip():
-                try:
-                    result = session_manager.record_voice_turn(role.lower(), text.strip())
-                    if result.get("should_end"):
-                        try:
-                            await websocket.send_json({
-                                "type": "interview_ending",
-                                "state": result.get("state", {})
-                            })
-                        except Exception:
-                            pass
-                except Exception as e:
-                    logger.error(f"Error recording voice turn for session {session_id}: {e}")
+                if is_final and text:
+                    pending_transcript[0] = text
 
-        async def on_barge_in():
-            try:
-                await websocket.send_json({"type": "barge_in", "message": "User interruption detected"})
-            except Exception:
-                pass
+                if speech_final and pending_transcript[0]:
+                    loop.call_soon_threadsafe(
+                        transcript_queue.put_nowait, pending_transcript[0]
+                    )
+                    pending_transcript[0] = ""
+            except Exception as e:
+                logger.error(f"Deepgram transcript handler error: {e}")
 
-        async def on_turn_ended(stop_reason: str):
-            try:
-                await websocket.send_json({"type": "turn_ended", "stop_reason": stop_reason})
-            except Exception:
-                pass
+        def on_utterance_end(self_p, utt_end, **kw):
+            if pending_transcript[0]:
+                loop.call_soon_threadsafe(
+                    transcript_queue.put_nowait, pending_transcript[0]
+                )
+                pending_transcript[0] = ""
 
-        async def on_renewed():
-            try:
-                await websocket.send_json({"type": "renewed", "message": "Nova Sonic connection renewed successfully."})
-            except Exception:
-                pass
+        def on_error(self_p, error, **kw):
+            logger.error(f"Deepgram error: {error}")
+            loop.call_soon_threadsafe(ws_send_queue.put_nowait, {
+                "type": "error", "error": str(error)
+            })
 
-        async def on_error(err_msg: str):
-            try:
-                await websocket.send_json({"type": "error", "error": err_msg})
-            except Exception:
-                pass
+        # ── Connect to Deepgram ──
 
-        nova_session = await engine.create_session(
-            session_id=session_id or str(uuid.uuid4()),
-            system_prompt=system_prompt,
-            voice_id=engine.voice_id,
-            on_audio=on_audio_chunk,
-            on_transcript=on_transcript_chunk,
-            on_barge_in=on_barge_in,
-            on_turn_ended=on_turn_ended,
-            on_renewed=on_renewed,
-            on_error=on_error
+        dg_client = DeepgramClient(deepgram_api_key)
+        dg_conn = dg_client.listen.websocket.v("1")
+        dg_conn.on(LiveTranscriptionEvents.Open, on_open)
+        dg_conn.on(LiveTranscriptionEvents.Transcript, on_transcript)
+        dg_conn.on(LiveTranscriptionEvents.UtteranceEnd, on_utterance_end)
+        dg_conn.on(LiveTranscriptionEvents.Error, on_error)
+
+        options = LiveOptions(
+            model="nova-3",
+            language="en",
+            encoding="linear16",
+            sample_rate=16000,
+            channels=1,
+            punctuate=True,
+            interim_results=True,
+            utterance_end_ms="1000",
+            endpointing=500,
         )
 
-        provider_label = VOICE_PROVIDER
-        await websocket.send_json({
-            "type": "connected",
-            "engine": provider_label,
-            "voice_id": engine.voice_id,
-            "session_id": session_id
-        })
+        if not dg_conn.start(options):
+            await websocket.send_json({"type": "error", "error": "Failed to start Deepgram connection"})
+            return
+
+        logger.info(f"Deepgram+Polly voice session started (session={session_id})")
+
+        # ── Task: drain ws_send_queue → browser ──
+
+        async def sender():
+            try:
+                while True:
+                    msg = await ws_send_queue.get()
+                    await websocket.send_json(msg)
+            except Exception:
+                pass
+
+        # ── Task: LLM + Polly for each final transcript ──
+
+        async def llm_tts_processor():
+            # Speak the opening question immediately on connect
+            if session_manager:
+                try:
+                    await asyncio.sleep(0.5)  # let AudioContext unlock in browser
+                    intro_result = await asyncio.to_thread(session_manager.process_message, "")
+                    intro_text = intro_result.get("content", "") if isinstance(intro_result, dict) else str(intro_result)
+                    if intro_text:
+                        await _speak(intro_text)
+                except Exception as e:
+                    logger.warning(f"Could not generate opening question: {e}")
+
+            while True:
+                transcript = await transcript_queue.get()
+                if not transcript.strip():
+                    continue
+
+                logger.info(f"🎤 User said: '{transcript[:80]}'")
+
+                # Record user turn for coach agent
+                if session_manager:
+                    try:
+                        result = session_manager.record_voice_turn("user", transcript)
+                        if result.get("should_end"):
+                            await ws_send_queue.put({"type": "interview_ending", "state": result.get("state", {})})
+                            continue
+                    except Exception as e:
+                        logger.error(f"record_voice_turn error: {e}")
+
+                # LLM response (sync, run in thread)
+                ai_text = ""
+                try:
+                    if session_manager:
+                        llm_result = await asyncio.to_thread(session_manager.process_message, transcript)
+                        ai_text = llm_result.get("content", "") if isinstance(llm_result, dict) else str(llm_result)
+                    else:
+                        ai_text = "Your session is not active. Please start a new interview."
+                except Exception as e:
+                    logger.error(f"LLM error: {e}")
+                    ai_text = "I encountered an error. Please try again."
+
+                if not ai_text:
+                    continue
+
+                # Send full text to browser immediately (display before audio starts)
+                await ws_send_queue.put({
+                    "type": "transcript", "role": "assistant",
+                    "text": ai_text, "is_final": True
+                })
+
+                # Record assistant turn for coach
+                if session_manager:
+                    try:
+                        session_manager.record_voice_turn("assistant", ai_text)
+                    except Exception:
+                        pass
+
+                await _speak(ai_text)
+
+        async def _speak(text: str):
+            """Synthesize text with Deepgram TTS and stream PCM chunks to browser."""
+            try:
+                audio_bytes = await deepgram_tts(text)
+                CHUNK = 8192
+                for i in range(0, len(audio_bytes), CHUNK):
+                    chunk_b64 = base64.b64encode(audio_bytes[i:i + CHUNK]).decode()
+                    await ws_send_queue.put({"type": "audio", "data": chunk_b64})
+                await ws_send_queue.put({"type": "turn_ended", "stop_reason": "END_TURN"})
+            except Exception as e:
+                logger.error(f"Deepgram TTS error: {e}")
+                await ws_send_queue.put({"type": "turn_ended", "stop_reason": "ERROR"})
+
+        # ── Task: receive audio from browser → Deepgram ──
+
+        async def audio_receiver():
+            try:
+                while True:
+                    msg = await websocket.receive()
+                    if msg.get("type") == "websocket.disconnect":
+                        break
+                    if "bytes" in msg and msg["bytes"]:
+                        dg_conn.send(msg["bytes"])
+                    elif "text" in msg and msg["text"]:
+                        try:
+                            parsed = json.loads(msg["text"])
+                            if parsed.get("type") == "client_turn_complete":
+                                # Manual "Finish Answer" — flush any pending transcript
+                                if pending_transcript[0]:
+                                    loop.call_soon_threadsafe(
+                                        transcript_queue.put_nowait, pending_transcript[0]
+                                    )
+                                    pending_transcript[0] = ""
+                        except json.JSONDecodeError:
+                            pass
+            except (WebSocketDisconnect, RuntimeError):
+                pass
+
+        sender_task = asyncio.create_task(sender())
+        processor_task = asyncio.create_task(llm_tts_processor())
 
         try:
-            while True:
-                msg = await websocket.receive()
-                if msg.get("type") == "websocket.disconnect":
-                    break
-                if "bytes" in msg and msg["bytes"]:
-                    b64 = base64.b64encode(msg["bytes"]).decode("ascii")
-                    await nova_session.send_audio_chunk(b64)
-                elif "text" in msg and msg["text"]:
-                    try:
-                        parsed = json.loads(msg["text"])
-                        p_type = parsed.get("type")
-                        if p_type == "audio":
-                            await nova_session.send_audio_chunk(parsed.get("data", ""))
-                        elif p_type == "renew":
-                            await nova_session.renew_connection()
-                        elif p_type == "stop":
-                            break
-                    except json.JSONDecodeError:
-                        pass
-        except (WebSocketDisconnect, RuntimeError):
-            logger.debug(f"Client disconnected from Nova Sonic stream {session_id}")
+            await audio_receiver()
         finally:
-            if session_id:
-                await engine.close_session(session_id)
-            if speech_task_id:
-                try:
-                    await db_manager.update_speech_task(speech_task_id, "completed")
-                except Exception:
-                    pass
+            sender_task.cancel()
+            processor_task.cancel()
+            try:
+                dg_conn.finish()
+            except Exception:
+                pass
+            logger.info(f"Deepgram+Polly voice session ended (session={session_id})")
+
 
     @router.websocket("/api/speech-to-text/stream")
     async def websocket_stream_endpoint(
@@ -586,8 +705,8 @@ def create_speech_api(app):
         token: Optional[str] = Query(None, description="Optional JWT token for authentication"),
         session_id: Optional[str] = Query(None, description="Optional session ID for linking speech tasks")
     ):
-        """Primary real-time speech streaming endpoint powered by Amazon Nova 2 Sonic."""
-        await _handle_nova_sonic_stream(websocket, token, session_id)
+        """Primary interview voice stream: Deepgram STT → LLM → Polly TTS."""
+        await _handle_deepgram_polly_stream(websocket, token, session_id)
 
     @router.websocket("/api/voice/nova-sonic/stream")
     async def nova_sonic_stream_endpoint(
