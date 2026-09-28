@@ -1,25 +1,47 @@
-from datetime import datetime
-import enum
 import uuid
-from sqlalchemy import Column, DateTime, Enum, String, Text
+import enum
+
+from sqlalchemy import ForeignKey, Uuid, String, Enum, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
 from backend.database import Base
 
+
 class SessionStage(str, enum.Enum):
-    WAITING = "WAITING"
     TECH = "TECH"
     CODING_TOOL = "CODING_TOOL"
-    SYSTEM_DESIGN = "SYSTEM_DESIGN"
     EVALUATING = "EVALUATING"
-    COMPLETED = "COMPLETED"
+
 
 class InterviewSession(Base):
-    """Real-time mock interview session tracking candidate progression and state machine transitions."""
-    __tablename__ = "interview_sessions"
+    __tablename__ = "sessions"
 
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    candidate_id = Column(String(36), index=True, nullable=False)
-    role_title = Column(String(100), default="Full Stack Software Engineer", nullable=False)
-    stage = Column(Enum(SessionStage), default=SessionStage.WAITING, nullable=False)
-    transcript = Column(Text, default="[]", nullable=False)  # JSON serialized chat turns
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+
+    candidate_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=False,
+    )
+
+    role_title: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        default="Full Stack Software Engineer",
+    )
+
+    stage: Mapped[SessionStage] = mapped_column(
+        Enum(SessionStage),
+        nullable=False,
+        default=SessionStage.TECH,
+    )
+
+    transcript: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="[]",
+    )

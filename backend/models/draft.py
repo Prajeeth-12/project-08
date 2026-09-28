@@ -1,16 +1,67 @@
-from datetime import datetime
 import uuid
-from sqlalchemy import Column, DateTime, String, Text
+from datetime import datetime, timezone
+
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, Uuid, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column
+
 from backend.database import Base
 
-class CodeDraft(Base):
-    """In-interview live code draft state model with auto-save support."""
-    __tablename__ = "code_drafts"
 
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    session_id = Column(String(36), index=True, nullable=False)
-    candidate_id = Column(String(36), index=True, nullable=True)
-    language = Column(String(50), default="python", nullable=False)
-    code_content = Column(Text, default="", nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+class Draft(Base):
+    __tablename__ = "drafts"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "session_id",
+            "question_id",
+            "language",
+            name="uq_draft_user_session_question_language",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=False,
+    )
+
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("sessions.id"),
+        nullable=False,
+    )
+
+    question_id: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+
+    language: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+    )
+
+    source_code: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+    )
+
+    saved_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )

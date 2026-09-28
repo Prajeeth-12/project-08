@@ -1,93 +1,186 @@
-"use client";
-
-import React, { useState, useEffect } from "react";
-
-interface MonacoEditorProps {
-  initialCode?: string;
+import { useEffect, useRef, useState } from "react";
+import "./MonacoEditor.css";
+import Editor, { type OnMount } from "@monaco-editor/react";
+const languages = [
+  { label: "C", value: "c" },
+  { label: "C++", value: "cpp" },
+  { label: "Java", value: "java" },
+  { label: "Python", value: "python" },
+  { label: "JavaScript", value: "javascript" },
+];
+type MonacoEditorProps = {
+  userId: string;
   sessionId: string;
-  onCodeChange?: (code: string) => void;
-}
+  questionId: string;
+  onCodeChange: (code: string, language: string) => void;
+};
 
-export const MonacoEditor: React.FC<MonacoEditorProps> = ({
-  initialCode = 'def solve():\n    # Write your solution here\n    print("Hello, Project 08!")\n',
+function MonacoEditor({
+  userId,
   sessionId,
+  questionId,
   onCodeChange,
-}) => {
-  const [code, setCode] = useState(initialCode);
-  const [language, setLanguage] = useState("python");
-  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("saved");
+}: MonacoEditorProps) {
+  const [language, setLanguage] = useState("cpp");
 
-  // Auto-save debounce effect (500ms)
+const [codeByQuestionAndLanguage, setCodeByQuestionAndLanguage] =
+  useState<Record<string, Record<string, string>>>({});
+
+const draftIdByQuestionAndLanguage = useRef<Record<string, Record<string, string>>>({});
+
+
+ const sourceCode = codeByQuestionAndLanguage[questionId]?.[language] ?? "";
   useEffect(() => {
-    setSaveStatus("unsaved");
-    const timer = setTimeout(async () => {
-      setSaveStatus("saving");
-      try {
-        await fetch("http://localhost:8000/api/code/drafts", {
+  if (!sourceCode) {
+    return;
+  }
+
+  const timer = setTimeout(async () => {
+    try {
+      const response = await fetch(
+        "http://127.0.0.1:8000/api/code/drafts",  
+        {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({
+            draft_id:
+              draftIdByQuestionAndLanguage.current[questionId]?.[language] ??
+              null,
+            user_id: userId,
             session_id: sessionId,
+            question_id: questionId,
             language,
-            code_content: code,
+            source_code: sourceCode,
           }),
-        });
-        setSaveStatus("saved");
-      } catch (err) {
-        setSaveStatus("unsaved");
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Auto-save failed: ${response.status}`);
       }
-    }, 500);
 
-    return () => clearTimeout(timer);
-  }, [code, language, sessionId]);
+      const draft = await response.json();
 
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setCode(e.target.value);
-    if (onCodeChange) onCodeChange(e.target.value);
+      if (!draftIdByQuestionAndLanguage.current[questionId]) {
+        draftIdByQuestionAndLanguage.current[questionId] = {};
+      }
+
+      draftIdByQuestionAndLanguage.current[questionId][language] =
+        draft.id;
+
+      console.log("Draft auto-saved:", draft);
+    } catch (error) {
+      console.error("Failed to auto-save draft:", error);
+    }
+  }, 300);
+
+  return () => clearTimeout(timer);
+}, [sourceCode, language, userId, sessionId, questionId]);
+const handleLanguageChange = (nextLanguage: string) => {
+  setLanguage(nextLanguage);
+
+  // Immediately update the parent component
+  onCodeChange(sourceCode, nextLanguage);
+};
+
+  const handleEditorChange = (value: string | undefined) => {
+  const newCode = value ?? "";
+
+  setCodeByQuestionAndLanguage((previous) => ({
+    ...previous,
+    [questionId]: {
+      ...previous[questionId],
+      [language]: newCode,
+    },
+  }));
+
+  onCodeChange(newCode, language);
+};
+const handleEditorMount = (editorInstance: any) => {
+  const editorElement = editorInstance.getDomNode();
+
+  if (!editorElement) {
+    return;
+  }
+
+  const blockPaste = (event: ClipboardEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
   };
 
-  return (
-    <div className="flex flex-col h-full bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
-      {/* Editor Header Bar */}
-      <div className="flex items-center justify-between px-4 py-2.5 bg-slate-950/80 border-b border-slate-800 text-xs">
-        <div className="flex items-center gap-3">
-          <span className="font-semibold text-slate-200">Editor Workspace</span>
-          <select
-            value={language}
-            onChange={(e) => setLanguage(e.target.value)}
-            aria-label="Select Programming Language"
-            className="bg-slate-800 text-slate-300 rounded px-2 py-1 border border-slate-700 focus:outline-none focus:border-indigo-500"
-          >
-            <option value="python">Python 3.11</option>
-            <option value="javascript">JavaScript (Node)</option>
-            <option value="cpp">C++ 20</option>
-            <option value="java">Java 17</option>
-          </select>
-        </div>
+  const blockDrop = (event: DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
 
-        <div className="flex items-center gap-2">
-          <span
-            className={`w-2 h-2 rounded-full ${
-              saveStatus === "saved"
-                ? "bg-emerald-400"
-                : saveStatus === "saving"
-                ? "bg-amber-400 animate-pulse"
-                : "bg-slate-500"
-            }`}
-          />
-          <span className="text-slate-400 capitalize">{saveStatus}</span>
-        </div>
-      </div>
+  const blockKeyboardPaste = (event: KeyboardEvent) => {
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      event.key.toLowerCase() === "v"
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
 
-      {/* Code Editor Surface */}
-      <textarea
-        value={code}
-        onChange={handleChange}
-        aria-label="Code Editor Input Area"
-        placeholder="Enter your solution..."
-        className="flex-1 p-4 bg-slate-950 font-mono text-sm text-slate-100 resize-none focus:outline-none focus:ring-0 leading-relaxed"
-        spellCheck={false}
+  editorElement.addEventListener("paste", blockPaste);
+  editorElement.addEventListener("drop", blockDrop);
+  editorElement.addEventListener("keydown", blockKeyboardPaste);
+
+  return () => {
+    editorElement.removeEventListener("paste", blockPaste);
+    editorElement.removeEventListener("drop", blockDrop);
+    editorElement.removeEventListener("keydown", blockKeyboardPaste);
+  };
+};
+return (
+  <div className="editor-container">
+    <div className="editor-toolbar">
+      <label htmlFor="language">Language:</label>
+
+      <select
+        id="language"
+        value={language}
+        onChange={(event) => handleLanguageChange(event.target.value)}
+      >
+        {languages.map((item) => (
+          <option key={item.value} value={item.value}>
+            {item.label}
+          </option>
+        ))}
+      </select>
+    </div>
+
+    <div className="editor-wrapper">
+      <Editor
+        height="500px"
+        language={language}
+        onMount={handleEditorMount}
+        value={sourceCode}
+        theme="vs-dark"
+        onChange={handleEditorChange}
+        options={{
+          minimap: {
+            enabled: true,
+          },
+          fontSize: 16,
+          automaticLayout: true,
+          dragAndDrop: false,
+          quickSuggestions: false,
+          suggestOnTriggerCharacters: false,
+          parameterHints: {
+            enabled: false,
+          },
+          wordBasedSuggestions: "off",
+          inlineSuggest: {
+            enabled: false,
+          },
+        }}
       />
     </div>
-  );
-};
+  </div>
+);
+}
+export default MonacoEditor;

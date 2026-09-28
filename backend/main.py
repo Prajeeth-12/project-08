@@ -31,21 +31,24 @@ app = FastAPI(
 # Enable CORS for Next.js frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-)
+)   
 
 # Register routers for all 10 member slices across Squad A and Squad B
 app.include_router(auth_router, prefix=settings.API_V1_STR)
-app.include_router(drafts_router, prefix=settings.API_V1_STR)
+app.include_router(drafts_router)
 app.include_router(execution_router, prefix=settings.API_V1_STR)
 app.include_router(sessions_router, prefix=settings.API_V1_STR)
 app.include_router(probing_router, prefix=settings.API_V1_STR)
 app.include_router(code_review_router, prefix=settings.API_V1_STR)
 app.include_router(resumes_router, prefix=settings.API_V1_STR)
-app.include_router(questions_router, prefix=settings.API_V1_STR)
+app.include_router(questions_router)
 app.include_router(exams_router, prefix=settings.API_V1_STR)
 app.include_router(evaluations_router, prefix=settings.API_V1_STR)
 
