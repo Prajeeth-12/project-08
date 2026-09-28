@@ -1,4 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import ScoreHero from '@/components/ScoreHero';
+import CompetencyGrid from '@/components/CompetencyGrid';
+import PrepListDisplay from '@/components/PrepListDisplay';
+import CoachingCardsDisplay from '@/components/CoachingCardsDisplay';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -940,7 +944,23 @@ const PostInterviewReport: React.FC<PostInterviewReportProps> = ({
                 <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-center text-[#111827] mb-8 sm:mb-12 px-4 sm:px-0">
                   Performance Analysis
                 </h2>
-                
+
+                {/* V2: ScoreHero + CompetencyGrid */}
+                {(() => {
+                  const d = timingControl.actualSummaryData || finalSummary.data;
+                  return d?.readiness_score !== undefined ? (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+                      <ScoreHero
+                        readinessScore={d.readiness_score ?? 0}
+                        rubricBand={d.rubric_band ?? 'Developing'}
+                        overallScore={d.overall_score}
+                        sessionRole={d.role}
+                      />
+                      {d.dimension_scores && <CompetencyGrid dimensionScores={d.dimension_scores} />}
+                    </div>
+                  ) : null;
+                })()}
+
                 {/* Analysis results grid */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 lg:gap-8">
                   {/* Patterns & Tendencies */}
@@ -987,6 +1007,17 @@ const PostInterviewReport: React.FC<PostInterviewReportProps> = ({
                     </p>
                   </div>
                 </div>
+
+                {/* V2: PrepList + CoachingCards */}
+                {(() => {
+                  const d = timingControl.actualSummaryData || finalSummary.data;
+                  return (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+                      {d?.prep_list?.length > 0 && <PrepListDisplay items={d.prep_list} />}
+                      {d?.coaching_cards?.length > 0 && <CoachingCardsDisplay cards={d.coaching_cards} />}
+                    </div>
+                  );
+                })()}
               </div>
             )}
             {finalSummary.status === 'error' && (

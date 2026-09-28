@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
+import { useSEBGuard } from "@/hooks/useSEBGuard";
 
 interface ExamPortalProps {
   examId: string;
@@ -8,36 +9,22 @@ interface ExamPortalProps {
 }
 
 export const ExamPortal: React.FC<ExamPortalProps> = ({ examId, candidateId }) => {
-  const [infractionCount, setInfractionCount] = useState(0);
   const [status, setStatus] = useState("IN_PROGRESS");
-  const [timeLeft, setTimeLeft] = useState(3600); // 60 mins
+  const [timeLeft, setTimeLeft] = useState(3600);
 
-  // Proctoring event handlers (Window blur, Tab switch, Fullscreen exit)
-  useEffect(() => {
+  const { infractionCount, isFullscreen, requestFullscreen } = useSEBGuard({
+    examId,
+    maxInfractions: 3,
+    onDisqualified: () => setStatus("DISQUALIFIED"),
+    onInfraction: (_reason, count) => {
+      if (count >= 3) setStatus("DISQUALIFIED");
+    },
+  });
+
+  // --- legacy useEffect removed --- useSEBGuard handles all proctoring ---
+  // Dummy placeholder for removed useEffect
+  React.useEffect(() => {
     if (status !== "IN_PROGRESS") return;
-
-    const recordInfraction = async (reason: string) => {
-      try {
-        const res = await fetch(`http://localhost:8000/api/exams/${examId}/infraction`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ candidate_id: candidateId, reason }),
-        });
-        const data = await res.json();
-        setInfractionCount(data.infraction_count);
-        setStatus(data.status);
-      } catch (err) {
-        console.error(err);
-      }
-    };
-
-    const handleBlur = () => recordInfraction("WINDOW_BLUR");
-    const handleVisibility = () => {
-      if (document.hidden) recordInfraction("TAB_SWITCH");
-    };
-
-    window.addEventListener("blur", handleBlur);
-    document.addEventListener("visibilitychange", handleVisibility);
 
     // Countdown timer
     const timer = setInterval(() => {
