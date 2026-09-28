@@ -63,6 +63,25 @@ from backend.api.file_processing_api import create_file_processing_api
 from backend.api.auth_api import create_auth_api
 from backend.middleware import SessionSavingMiddleware
 
+# Team-B feature routers (coding platform, exam portal, resume, rubric)
+try:
+    from backend.api.execution import router as execution_router
+    from backend.api.probing import router as probing_router
+    from backend.api.code_review import router as code_review_router
+    from backend.api.resumes import router as resumes_router
+    from backend.api.questions import router as questions_router
+    from backend.api.exams import router as exams_router
+    from backend.api.evaluations import router as evaluations_router
+    from backend.api.drafts import router as drafts_router
+    from backend.api.sessions import router as sessions_router
+    from backend.api.auth import router as auth_b_router
+    from backend.database import init_db
+    _TEAM_B_ROUTES_AVAILABLE = True
+except Exception as _e:
+    import logging as _log
+    _log.getLogger(__name__).warning(f"Team-B routes not loaded: {_e}")
+    _TEAM_B_ROUTES_AVAILABLE = False
+
 # Enhanced Azure-compatible logging setup
 def setup_azure_logging():
     """Setup structured JSON logging for Azure Container Apps."""
@@ -181,6 +200,20 @@ logger.info("Speech API routes registered")
 
 create_file_processing_api(app)
 logger.info("File Processing API routes registered")
+
+# Register team-B platform routers
+if _TEAM_B_ROUTES_AVAILABLE:
+    app.include_router(auth_b_router)
+    app.include_router(drafts_router)
+    app.include_router(execution_router)
+    app.include_router(sessions_router)
+    app.include_router(probing_router)
+    app.include_router(code_review_router)
+    app.include_router(resumes_router)
+    app.include_router(questions_router)
+    app.include_router(exams_router)
+    app.include_router(evaluations_router)
+    logger.info("Team-B platform routes registered (coding, exams, resume, rubric)")
 
 
 
@@ -342,6 +375,9 @@ async def startup_event():
 
     try:
         await initialize_services()  # Initialize core services
+        if _TEAM_B_ROUTES_AVAILABLE:
+            await init_db()  # Initialize SQLAlchemy tables for team-B endpoints
+            logger.info("✅ Team-B SQLAlchemy tables initialized")
         session_registry = get_session_registry()
         app.state.agent_manager = session_registry
         

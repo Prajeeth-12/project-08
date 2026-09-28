@@ -1,9 +1,16 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, lazy, Suspense } from 'react';
 import { useInterviewSession } from '@/hooks/useInterviewSession';
 import Header from '@/components/Header';
 import InterviewSession from '@/components/InterviewSession';
 import PostInterviewReport from '@/components/PostInterviewReport';
 import BackendDownNotification from '@/components/BackendDownNotification';
+
+// Team-B platform components (lazy-loaded — only bundle when used)
+const MonacoEditor   = lazy(() => import('@/components/team_a/MonacoEditor').then(m => ({ default: m.default ?? m.MonacoEditor })));
+const TestConsole    = lazy(() => import('@/components/team_a/TestConsole').then(m => ({ default: m.default ?? m.TestConsole })));
+const ExamPortal     = lazy(() => import('@/components/team_b/ExamPortal').then(m => ({ default: m.default ?? m.ExamPortal })));
+const ResumeViewer   = lazy(() => import('@/components/team_b/ResumeViewer').then(m => ({ default: m.default ?? m.ResumeViewer })));
+const ScorecardView  = lazy(() => import('@/components/team_b/ScorecardView').then(m => ({ default: m.default ?? m.ScorecardView })));
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -50,6 +57,12 @@ const Index = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [showRequiredError, setShowRequiredError] = useState(false);
   
+  // Platform track selection: Track 1 = voice interview, Track 2 = coding platform
+  const [platformTrack, setPlatformTrack] = useState<'track1' | 'track2' | 'scorecard' | 'resume'>('track1');
+  // Coding editor state for Track 2
+  const [code, setCode] = useState('def solve():\n    # Write your solution here\n    pass\n');
+  const [codeLanguage, setCodeLanguage] = useState('python');
+
   const heroRef = useRef<HTMLDivElement>(null);
   const configSectionRef = useRef<HTMLDivElement>(null);
   const jobRoleSectionRef = useRef<HTMLDivElement>(null);
@@ -822,22 +835,110 @@ const Index = () => {
     );
   };
 
+  // ── Platform Track Navigator ──
+  const renderPlatformNav = () => (
+    <div className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
+      <div className="container mx-auto px-4 sm:px-6 flex items-center gap-1 py-2 overflow-x-auto">
+        {([
+          { id: 'track1',    label: '🎙️ AI Interview',      desc: 'Voice + Coach' },
+          { id: 'track2',    label: '💻 Coding Platform',   desc: 'Editor + Judge0' },
+          { id: 'scorecard', label: '📊 Scorecard',         desc: 'Rubric + Coach' },
+          { id: 'resume',    label: '📄 Resume',             desc: 'Claims + Skills' },
+        ] as const).map(t => (
+          <button
+            key={t.id}
+            onClick={() => setPlatformTrack(t.id)}
+            className={`flex-shrink-0 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+              platformTrack === t.id
+                ? 'bg-[#DC2626] text-white shadow'
+                : 'bg-gray-100 text-[#4B5563] hover:bg-gray-200'
+            }`}
+          >
+            {t.label}
+            <span className={`ml-1.5 text-[10px] font-normal ${platformTrack === t.id ? 'text-white/70' : 'text-gray-400'}`}>
+              {t.desc}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  // ── Track 2: Coding Platform ──
+  const renderCodingPlatform = () => (
+    <div className="flex-1 flex flex-col gap-4 p-4 bg-slate-950 min-h-screen">
+      <div className="flex items-center gap-3 px-2 py-1">
+        <span className="text-white font-bold text-lg">💻 Coding Assessment Workspace</span>
+        <span className="text-xs text-slate-400 font-mono">Track 2 — A1/A2 — Monaco + Judge0</span>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1">
+        <Suspense fallback={<div className="bg-slate-900 rounded-xl h-96 animate-pulse" />}>
+          <MonacoEditor
+            userId="demo-user"
+            sessionId="demo-session"
+            questionId="q-001"
+            onCodeChange={(c, l) => { setCode(c); setCodeLanguage(l); }}
+          />
+        </Suspense>
+        <Suspense fallback={<div className="bg-slate-900 rounded-xl h-96 animate-pulse" />}>
+          <TestConsole
+            sourceCode={code}
+            sessionId="demo-session"
+            questionId="q-001"
+          />
+        </Suspense>
+      </div>
+    </div>
+  );
+
+  // ── Scorecard View ──
+  const renderScorecard = () => (
+    <div className="flex-1 p-6 bg-[#FAFAFA] min-h-screen">
+      <div className="max-w-4xl mx-auto">
+        <h2 className="text-2xl font-bold text-[#111827] mb-6">📊 Rubric Scorer & 30-Day Coach</h2>
+        <Suspense fallback={<div className="bg-white rounded-xl h-64 animate-pulse border border-gray-200" />}>
+          <ScorecardView />
+        </Suspense>
+      </div>
+    </div>
+  );
+
+  // ── Resume Viewer ──
+  const renderResume = () => (
+    <div className="flex-1 p-6 bg-[#FAFAFA] min-h-screen">
+      <div className="max-w-4xl mx-auto">
+        <h2 className="text-2xl font-bold text-[#111827] mb-6">📄 Resume Intelligence — Claim Parser</h2>
+        <Suspense fallback={<div className="bg-white rounded-xl h-64 animate-pulse border border-gray-200" />}>
+          <ResumeViewer userId="demo-user" />
+        </Suspense>
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-screen flex flex-col bg-white text-[#111827] relative overflow-hidden font-sans">
       {state !== 'interviewing' && state !== 'post_interview' && (
-        <Header 
-          showReset={state === 'completed'} 
+        <Header
+          showReset={state === 'completed'}
           onReset={actions.resetInterview}
         />
       )}
-      
+
       <main className="flex-1 flex flex-col">
         {state === 'configuring' && (
           <>
-            {renderHeroSection()}
-            {renderConfigurationForm()}
-            {renderFeatureConstellation()}
-            {renderFooter()}
+            {renderPlatformNav()}
+            {platformTrack === 'track1' && (
+              <>
+                {renderHeroSection()}
+                {renderConfigurationForm()}
+                {renderFeatureConstellation()}
+                {renderFooter()}
+              </>
+            )}
+            {platformTrack === 'track2'    && renderCodingPlatform()}
+            {platformTrack === 'scorecard' && renderScorecard()}
+            {platformTrack === 'resume'    && renderResume()}
           </>
         )}
         

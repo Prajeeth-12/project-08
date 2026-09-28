@@ -93,4 +93,26 @@ __all__ = [
     'AWS_REGION',
     'AWS_ACCESS_KEY_ID',
     'AWS_SECRET_ACCESS_KEY',
+    'settings',
 ]
+
+# ── Team-B Settings — shared config for coding platform endpoints ──
+from pydantic import BaseModel as _BaseModel
+
+class _Settings(_BaseModel):
+    PROJECT_NAME: str = "Project 08 - AI Mock Interview & Assessment Platform"
+    VERSION: str = "1.0.0"
+    API_V1_STR: str = "/api"
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./project08.db")
+    QUESTION_BANK_DATABASE_URL: str = os.getenv("QUESTION_BANK_DATABASE_URL", "")
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "project08-super-secure-production-secret-key-2026")
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
+    JUDGE0_URL: str = os.getenv("JUDGE0_URL", "https://judge0-ce.p.rapidapi.com")
+    JUDGE0_API_KEY: str = os.getenv("JUDGE0_API_KEY", "")
+    EXECUTION_CPU_TIMEOUT: float = 2.0
+    EXECUTION_MEMORY_LIMIT: int = 128000
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+
+settings = _Settings()
