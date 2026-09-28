@@ -11,6 +11,13 @@ from datetime import datetime
 
 from backend.agents.interviewer import InterviewerAgent
 from backend.agents.agentic_coach import AgenticCoachAgent
+
+# V3: session guard (hard time + turn limits)
+try:
+    from backend.agents.session_guard import SessionGuard as _SessionGuard
+    _GUARD_AVAILABLE = True
+except ImportError:
+    _GUARD_AVAILABLE = False
 from backend.utils.event_bus import Event, EventBus, EventType
 from backend.agents.config_models import SessionConfig
 from backend.services.llm_service import LLMService
@@ -186,8 +193,19 @@ class AgentSessionManager:
         }
 
     def should_end_interview(self) -> bool:
-        """Check whether the interview should end."""
-        return self._get_interviewer().should_end_interview()
+        """Check whether the interview should end (agent decision OR session guard limits)."""
+        if self._get_interviewer().should_end_interview():
+            return True
+        # V3: hard turn/time limits
+        if _GUARD_AVAILABLE:
+            try:
+                turn_count = len([m for m in self.conversation_history if m.get("role") == "user"])
+                guard = _SessionGuard(max_turns=60, max_minutes=30)
+                if guard.is_expired(turn_count, getattr(self, '_session_start', datetime.utcnow())):
+                    return True
+            except Exception:
+                pass
+        return False
 
     # ------------------------------------------------------------------
     # Text path — records turn for non-voice usage (same controller)
@@ -248,6 +266,20 @@ class AgentSessionManager:
                     lc_messages.append(AIMessage(content=text))
             ai_response = llm.invoke(lc_messages)
             ai_text = ai_response.content if hasattr(ai_response, "content") else str(ai_response)
+
+            # V3: quality gate — reject vague/leading/repeated questions
+            if _GUARD_AVAILABLE:
+                try:
+                    from backend.agents.question_quality import passes_quality_gate
+                    from backend.agents.pushback_handler import detect_pushback
+                    if not passes_quality_gate(ai_text):
+                        # Regenerate once with explicit instruction
+                        retry_msgs = lc_messages + [AIMessage(content=ai_text),
+                            HumanMessage(content="That question was too vague. Ask a more specific, concrete follow-up.")]
+                        retry_resp = llm.invoke(retry_msgs)
+                        ai_text = retry_resp.content if hasattr(retry_resp, "content") else ai_text
+                except Exception:
+                    pass
         except Exception as e:
             self.logger.error(f"Text-path LLM call failed: {e}")
             ai_text = "I appreciate your response. Could you tell me more about your experience?"
