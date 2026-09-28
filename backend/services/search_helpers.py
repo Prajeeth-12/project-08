@@ -247,6 +247,7 @@ class FallbackResourceGenerator:
                 ),
                 "description": platform["description_template"].format(skill=skill, proficiency_level=proficiency_level),
                 "resource_type": platform["type"],
+                "type": platform["type"],
                 "source": "fallback",
                 "relevance_score": 0.5,  # Medium relevance for fallbacks
                 "metadata": {"fallback_rank": idx}

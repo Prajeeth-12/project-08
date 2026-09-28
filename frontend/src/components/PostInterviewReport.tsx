@@ -949,7 +949,7 @@ const PostInterviewReport: React.FC<PostInterviewReportProps> = ({
                       <TrendingUp className="w-6 h-6 sm:w-8 sm:h-8 text-[#DC2626]" />
                       <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-[#111827]">Observed Patterns</h3>
                     </div>
-                    <p className="text-gray-300 text-sm sm:text-base leading-relaxed">
+                    <p className="text-[#374151] text-sm sm:text-base leading-relaxed">
                       {(timingControl.actualSummaryData?.patterns_tendencies || finalSummary.data?.patterns_tendencies) || 'No specific patterns identified.'}
                     </p>
                   </div>
@@ -960,7 +960,7 @@ const PostInterviewReport: React.FC<PostInterviewReportProps> = ({
                       <Award className="w-6 h-6 sm:w-8 sm:h-8 text-[#DC2626]" />
                       <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-[#111827]">Key Strengths</h3>
                     </div>
-                    <p className="text-gray-300 text-sm sm:text-base leading-relaxed">
+                    <p className="text-[#374151] text-sm sm:text-base leading-relaxed">
                       {(timingControl.actualSummaryData?.strengths || finalSummary.data?.strengths) || 'No specific strengths identified.'}
                     </p>
                   </div>
@@ -971,7 +971,7 @@ const PostInterviewReport: React.FC<PostInterviewReportProps> = ({
                       <Target className="w-6 h-6 sm:w-8 sm:h-8 text-[#EAB308]" />
                       <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-[#111827]">Development Areas</h3>
                     </div>
-                    <p className="text-gray-300 text-sm sm:text-base leading-relaxed">
+                    <p className="text-[#374151] text-sm sm:text-base leading-relaxed">
                       {(timingControl.actualSummaryData?.weaknesses || finalSummary.data?.weaknesses) || 'No specific weaknesses identified.'}
                     </p>
                   </div>
@@ -982,7 +982,7 @@ const PostInterviewReport: React.FC<PostInterviewReportProps> = ({
                       <Lightbulb className="w-6 h-6 sm:w-8 sm:h-8 text-[#DC2626]" />
                       <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-[#111827]">Focus Areas</h3>
                     </div>
-                    <p className="text-gray-300 text-sm sm:text-base leading-relaxed">
+                    <p className="text-[#374151] text-sm sm:text-base leading-relaxed">
                       {(timingControl.actualSummaryData?.improvement_focus_areas || finalSummary.data?.improvement_focus_areas) || 'No specific focus areas identified.'}
                     </p>
                   </div>

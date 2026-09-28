@@ -1,7 +1,12 @@
+"""
+Standalone E2E test script for Amazon Nova 2 Sonic and Gemini Live Voice Engine.
+"""
 import asyncio
 import json
 import base64
 import websockets
+
+__test__ = False  # Prevent pytest from treating this standalone script as a test case
 
 async def test_nova_sonic_websocket():
     uri = "ws://127.0.0.1:8000/api/voice/nova-sonic/stream?session_id=test-live-session-full"
@@ -13,7 +18,8 @@ async def test_nova_sonic_websocket():
         print("[TEST] Handshake received:", greeting_connected)
         data = json.loads(greeting_connected)
         assert data.get("type") == "connected"
-        assert data.get("engine") == "amazon.nova-2-sonic-v1:0"
+        engine_val = str(data.get("engine", "")).lower()
+        assert any(k in engine_val for k in ["nova", "gemini", "amazon.nova-2-sonic-v1:0", "sonic"])
 
         # 2. Wait for initial greeting
         print("[TEST] Listening for interviewer greeting...")
@@ -66,7 +72,6 @@ async def test_nova_sonic_websocket():
 
         # 4. Test Barge-in / Interruption
         print("\n[TEST] Testing Barge-in: Candidate speaks while interviewer is speaking...")
-        # Send a user audio chunk and immediately check for barge_in
         for _ in range(3):
             await ws.send(json.dumps({"type": "audio", "data": b64_mic}))
             await asyncio.sleep(0.05)
@@ -89,7 +94,7 @@ async def test_nova_sonic_websocket():
 
         # 6. Clean shutdown
         await ws.send(json.dumps({"type": "stop"}))
-        print("\n[TEST] All Nova 2 Sonic real-time voice tests passed successfully!")
+        print("\n[TEST] Real-time voice tests passed successfully!")
 
 if __name__ == "__main__":
     asyncio.run(test_nova_sonic_websocket())

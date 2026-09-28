@@ -102,18 +102,20 @@ async def get_session_registry(request: Request) -> ThreadSafeSessionRegistry:
     return request.app.state.agent_manager
 
 async def get_session_id(
-    session_id: Optional[str] = Header(None, alias="X-Session-ID")
+    session_id_header: Optional[str] = Header(None, alias="X-Session-ID"),
+    session_id_query: Optional[str] = Query(None, alias="session_id")
 ) -> str:
-    """Extract or create session ID from request headers."""
-    if session_id:
-        return session_id
-    else:
-        # For backward compatibility, we'll create a session automatically
-        # In production, this might require authentication
-        raise HTTPException(
-            status_code=400, 
-            detail="Session ID required. Create a new session first."
-        )
+    """Extract session ID from request headers or query params."""
+    sid = session_id_header if isinstance(session_id_header, str) and session_id_header.strip() else None
+    if not sid and isinstance(session_id_query, str) and session_id_query.strip():
+        sid = session_id_query
+    
+    if sid:
+        return sid
+    raise HTTPException(
+        status_code=400, 
+        detail="Session ID required. Pass 'X-Session-ID' header or 'session_id' query parameter."
+    )
 
 async def get_session_manager(
     session_id: str = Depends(get_session_id),
