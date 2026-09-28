@@ -11,6 +11,8 @@ const TestConsole    = lazy(() => import('@/components/team_a/TestConsole').then
 const ExamPortal     = lazy(() => import('@/components/team_b/ExamPortal').then(m => ({ default: m.default ?? m.ExamPortal })));
 const ResumeViewer   = lazy(() => import('@/components/team_b/ResumeViewer').then(m => ({ default: m.default ?? m.ResumeViewer })));
 const ScorecardView  = lazy(() => import('@/components/team_b/ScorecardView').then(m => ({ default: m.default ?? m.ScorecardView })));
+// V4: Admin/Faculty dashboard
+const AdminDashboard = lazy(() => import('@/components/AdminDashboard').then(m => ({ default: m.default ?? m.AdminDashboard })));
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -58,7 +60,7 @@ const Index = () => {
   const [showRequiredError, setShowRequiredError] = useState(false);
   
   // Platform track selection: Track 1 = voice interview, Track 2 = coding platform
-  const [platformTrack, setPlatformTrack] = useState<'track1' | 'track2' | 'scorecard' | 'resume'>('track1');
+  const [platformTrack, setPlatformTrack] = useState<'track1' | 'track2' | 'scorecard' | 'resume' | 'admin'>('track1');
   // Coding editor state for Track 2
   const [code, setCode] = useState('def solve():\n    # Write your solution here\n    pass\n');
   const [codeLanguage, setCodeLanguage] = useState('python');
@@ -844,6 +846,7 @@ const Index = () => {
           { id: 'track2',    label: '💻 Coding Platform',   desc: 'Editor + Judge0' },
           { id: 'scorecard', label: '📊 Scorecard',         desc: 'Rubric + Coach' },
           { id: 'resume',    label: '📄 Resume',             desc: 'Claims + Skills' },
+          { id: 'admin',     label: '🏫 Admin',              desc: 'Faculty Dashboard' },
         ] as const).map(t => (
           <button
             key={t.id}
@@ -939,6 +942,11 @@ const Index = () => {
             {platformTrack === 'track2'    && renderCodingPlatform()}
             {platformTrack === 'scorecard' && renderScorecard()}
             {platformTrack === 'resume'    && renderResume()}
+            {platformTrack === 'admin'     && (
+              <Suspense fallback={<div className="p-8 text-center text-gray-400 animate-pulse">Loading admin dashboard…</div>}>
+                <AdminDashboard orgId="demo-org-id" />
+              </Suspense>
+            )}
           </>
         )}
         

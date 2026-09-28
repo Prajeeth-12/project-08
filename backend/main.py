@@ -63,6 +63,7 @@ from backend.api.file_processing_api import create_file_processing_api
 from backend.api.auth_api import create_auth_api
 from backend.api.blueprint_api import create_blueprint_api
 from backend.api.interview_ws import router as interview_ws_router
+from backend.api.institutional_api import create_institutional_api
 from backend.middleware import SessionSavingMiddleware
 
 # Team-B feature routers (coding platform, exam portal, resume, rubric)
@@ -239,6 +240,8 @@ logger.info("Blueprint API routes registered")
 
 app.include_router(interview_ws_router)
 logger.info("Interview WebSocket route registered (/ws/interview/{session_id})")
+
+create_institutional_api(app)
 
 # Register team-B platform routers
 if _TEAM_B_ROUTES_AVAILABLE:
