@@ -21,7 +21,7 @@ const LoginPage: React.FC = () => {
   // Redirect if already logged in
   React.useEffect(() => {
     if (isAuthenticated && user) {
-      const dest = from || (user.role === 'candidate' ? '/interview' : '/dashboard');
+      const dest = from || (user.role === 'candidate' ? '/home' : '/dashboard');
       navigate(dest, { replace: true });
     }
   }, [isAuthenticated, user]);
@@ -176,14 +176,16 @@ const LoginPage: React.FC = () => {
               <p className="text-xs text-gray-400 text-center mb-3">Dev: quick access</p>
               <div className="flex gap-2">
                 {[
-                  { label: 'Candidate', email: 'candidate@dev.test', pwd: 'Test1234!' },
-                  { label: 'Admin', email: 'admin@dev.test', pwd: 'Test1234!' },
-                ].map(({ label, email: e, pwd }) => (
+                  { label: 'Candidate', email: 'candidate@dev.example.com', pwd: 'Test1234!', hint: '→ /interview' },
+                  { label: 'Faculty', email: 'faculty@dev.example.com', pwd: 'Test1234!', hint: '→ /dashboard' },
+                  { label: 'Admin', email: 'admin@dev.example.com', pwd: 'Test1234!', hint: '→ /dashboard' },
+                ].map(({ label, email: e, pwd, hint }) => (
                   <button key={label} type="button"
                     onClick={() => { setEmail(e); setPassword(pwd); }}
                     className="flex-1 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-500
                       hover:border-[#DC2626]/30 hover:text-[#DC2626] transition-colors">
-                    {label}
+                    <div>{label}</div>
+                    <div className="text-[10px] opacity-60">{hint}</div>
                   </button>
                 ))}
               </div>

@@ -10,13 +10,15 @@ import ProtectedRoute from './components/ProtectedRoute';
 import RoleRoute from './components/RoleRoute';
 
 // Lazy-loaded pages (code-split)
-const LandingPage      = lazy(() => import('./pages/LandingPage'));
-const InterviewPage    = lazy(() => import('./pages/Index'));          // existing interview setup + cockpit
-const CodingPage       = lazy(() => import('./pages/CodingPage'));
-const ProfilePage      = lazy(() => import('./pages/ProfilePage'));
-const SettingsPage     = lazy(() => import('./pages/SettingsPage'));
-const DashboardPage    = lazy(() => import('./pages/DashboardPage'));
-const NotFound         = lazy(() => import('./pages/NotFound'));
+const LandingPage         = lazy(() => import('./pages/LandingPage'));
+const CandidateHomePage   = lazy(() => import('./pages/CandidateHomePage'));
+const InterviewPage       = lazy(() => import('./pages/Index'));
+const CodingPage          = lazy(() => import('./pages/CodingPage'));
+const ExamPage            = lazy(() => import('./pages/ExamPage'));
+const ProfilePage         = lazy(() => import('./pages/ProfilePage'));
+const SettingsPage        = lazy(() => import('./pages/SettingsPage'));
+const DashboardPage       = lazy(() => import('./pages/DashboardPage'));
+const NotFound            = lazy(() => import('./pages/NotFound'));
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-white">
@@ -29,7 +31,7 @@ const RootRedirect: React.FC = () => {
   const { isAuthenticated, user, isLoading } = useAuth();
   if (isLoading) return <PageLoader />;
   if (!isAuthenticated) return <LandingPage />;
-  if (user?.role === 'candidate') return <Navigate to="/interview" replace />;
+  if (user?.role === 'candidate') return <Navigate to="/home" replace />;
   return <Navigate to="/dashboard" replace />;
 };
 
@@ -45,6 +47,13 @@ function App() {
             <Route path="/register"  element={<RegisterPage />} />
 
             {/* Candidate-only */}
+            <Route path="/home" element={
+              <ProtectedRoute>
+                <RoleRoute roles={['candidate']} fallback="/dashboard">
+                  <CandidateHomePage />
+                </RoleRoute>
+              </ProtectedRoute>
+            } />
             <Route path="/interview" element={
               <ProtectedRoute>
                 <RoleRoute roles={['candidate']} fallback="/dashboard">
@@ -56,6 +65,14 @@ function App() {
               <ProtectedRoute>
                 <RoleRoute roles={['candidate']} fallback="/dashboard">
                   <CodingPage />
+                </RoleRoute>
+              </ProtectedRoute>
+            } />
+            {/* Exam — full page, no header, SEB locked */}
+            <Route path="/exam/:examId" element={
+              <ProtectedRoute>
+                <RoleRoute roles={['candidate']} fallback="/home">
+                  <ExamPage />
                 </RoleRoute>
               </ProtectedRoute>
             } />

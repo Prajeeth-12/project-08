@@ -17,7 +17,7 @@ const RegisterPage: React.FC = () => {
 
   React.useEffect(() => {
     if (isAuthenticated && user) {
-      navigate(user.role === 'candidate' ? '/interview' : '/dashboard', { replace: true });
+      navigate(user.role === 'candidate' ? '/home' : '/dashboard', { replace: true });
     }
   }, [isAuthenticated, user]);
 

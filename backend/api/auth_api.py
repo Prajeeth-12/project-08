@@ -151,20 +151,28 @@ class MessageResponse(BaseModel):
 
 # ── Mock helpers for local dev ────────────────────────────────────────────
 
+def _mock_role(email: str) -> str:
+    """Derive role from email for local dev: admin@* → admin, faculty@* → faculty, else candidate."""
+    e = email.lower()
+    if e.startswith("admin"):   return "admin"
+    if e.startswith("faculty"): return "faculty"
+    return "candidate"
+
 def _mock_tokens(user_id: str, email: str, name: str) -> AuthTokenResponse:
     import time
+    role = _mock_role(email)
     access = jwt.encode(
-        {"sub": user_id, "email": email, "name": name, "exp": int(time.time()) + 3600},
+        {"sub": user_id, "email": email, "name": name, "role": role, "exp": int(time.time()) + 3600},
         _MOCK_SECRET, algorithm="HS256"
     )
     refresh = jwt.encode(
-        {"sub": user_id, "email": email, "type": "refresh", "exp": int(time.time()) + 86400 * 30},
+        {"sub": user_id, "email": email, "name": name, "role": role, "type": "refresh", "exp": int(time.time()) + 86400 * 30},
         _MOCK_SECRET, algorithm="HS256"
     )
     return AuthTokenResponse(
         access_token=access,
         refresh_token=refresh,
-        user=UserResponse(id=user_id, email=email, name=name),
+        user=UserResponse(id=user_id, email=email, name=name or email.split("@")[0]),
     )
 
 # ── Route factory ─────────────────────────────────────────────────────────
