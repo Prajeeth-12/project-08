@@ -1,66 +1,60 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import axios from 'axios';
 
-// Define types
+export type UserRole = 'candidate' | 'faculty' | 'admin';
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  created_at?: string;
+}
+
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isCandidate: boolean;
+  isFaculty: boolean;
+  isAdmin: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string) => Promise<void>;
+  register: (email: string, password: string, name: string, role?: UserRole) => Promise<void>;
   logout: () => Promise<void>;
   getToken: () => string | null;
 }
 
-interface User {
-  id: string;
-  email: string;
-  name: string;
-  created_at?: string;
-}
+interface AuthProviderProps { children: ReactNode; }
+interface AuthTokens { access_token: string; refresh_token: string; user: User; }
 
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-interface AuthTokens {
-  access_token: string;
-  refresh_token: string;
-  user: User;
-}
-
-// Create the context
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Storage keys
-const ACCESS_TOKEN_KEY = 'ai_interviewer_access_token';
-const REFRESH_TOKEN_KEY = 'ai_interviewer_refresh_token';
-const USER_KEY = 'ai_interviewer_user';
+const ACCESS_TOKEN_KEY = 'aia_access_token';
+const REFRESH_TOKEN_KEY = 'aia_refresh_token';
+const USER_KEY = 'aia_user';
 
-// API base URL
-const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const API_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8001';
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  
-  // Initialize user from localStorage on mount
+
   useEffect(() => {
     const loadUser = async () => {
       const storedUser = localStorage.getItem(USER_KEY);
       const storedToken = localStorage.getItem(ACCESS_TOKEN_KEY);
-      
       if (storedUser && storedToken) {
-        setUser(JSON.parse(storedUser));
-        
-        // Configure axios with the stored token
+        const parsed: User = JSON.parse(storedUser);
+        // Default role to candidate for older tokens without role field
+        if (!parsed.role) parsed.role = 'candidate';
+        setUser(parsed);
         axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-        
-        // Optionally validate token with backend
         try {
-          await axios.get(`${API_URL}/auth/me`);
-        } catch (error) {
-          // Token is invalid, clear storage
+          const { data } = await axios.get<User>(`${API_URL}/auth/me`);
+          const updated = { ...parsed, ...data, role: data.role || parsed.role || 'candidate' };
+          setUser(updated);
+          localStorage.setItem(USER_KEY, JSON.stringify(updated));
+        } catch {
           localStorage.removeItem(ACCESS_TOKEN_KEY);
           localStorage.removeItem(REFRESH_TOKEN_KEY);
           localStorage.removeItem(USER_KEY);
@@ -68,127 +62,67 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           delete axios.defaults.headers.common['Authorization'];
         }
       }
-      
       setIsLoading(false);
     };
-    
     loadUser();
   }, []);
-  
-  // Register a new user
-  const register = async (email: string, password: string, name: string) => {
+
+  const register = async (email: string, password: string, name: string, role: UserRole = 'candidate') => {
     setIsLoading(true);
-    
     try {
-      const response = await axios.post<AuthTokens>(`${API_URL}/auth/register`, {
-        email,
-        password,
-        name
-      });
-      
-      const { access_token, refresh_token, user } = response.data;
-      
-      // Store tokens and user
-      localStorage.setItem(ACCESS_TOKEN_KEY, access_token);
-      localStorage.setItem(REFRESH_TOKEN_KEY, refresh_token);
-      localStorage.setItem(USER_KEY, JSON.stringify(user));
-      
-      // Set user state
-      setUser(user);
-      
-      // Configure axios with the token
-      axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
-    } catch (error) {
-      console.error('Registration failed:', error);
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
+      const { data } = await axios.post<AuthTokens>(`${API_URL}/auth/register`, { email, password, name, role });
+      const u: User = { ...data.user, role: data.user.role || role };
+      localStorage.setItem(ACCESS_TOKEN_KEY, data.access_token);
+      localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
+      localStorage.setItem(USER_KEY, JSON.stringify(u));
+      setUser(u);
+      axios.defaults.headers.common['Authorization'] = `Bearer ${data.access_token}`;
+    } catch (e) { throw e; }
+    finally { setIsLoading(false); }
   };
-  
-  // Login a user
+
   const login = async (email: string, password: string) => {
     setIsLoading(true);
-    
     try {
-      const response = await axios.post<AuthTokens>(`${API_URL}/auth/login`, {
-        email,
-        password
-      });
-      
-      const { access_token, refresh_token, user } = response.data;
-      
-      // Store tokens and user
-      localStorage.setItem(ACCESS_TOKEN_KEY, access_token);
-      localStorage.setItem(REFRESH_TOKEN_KEY, refresh_token);
-      localStorage.setItem(USER_KEY, JSON.stringify(user));
-      
-      // Set user state
-      setUser(user);
-      
-      // Configure axios with the token
-      axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
-    } catch (error) {
-      console.error('Login failed:', error);
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
+      const { data } = await axios.post<AuthTokens>(`${API_URL}/auth/login`, { email, password });
+      const u: User = { ...data.user, role: data.user.role || 'candidate' };
+      localStorage.setItem(ACCESS_TOKEN_KEY, data.access_token);
+      localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
+      localStorage.setItem(USER_KEY, JSON.stringify(u));
+      setUser(u);
+      axios.defaults.headers.common['Authorization'] = `Bearer ${data.access_token}`;
+    } catch (e) { throw e; }
+    finally { setIsLoading(false); }
   };
-  
-  // Logout a user
+
   const logout = async () => {
-    setIsLoading(true);
-    
-    try {
-      // Call logout endpoint
-      await axios.post(`${API_URL}/auth/logout`);
-    } catch (error) {
-      console.error('Logout API call failed:', error);
-      // Continue with local logout even if API call fails
-    } finally {
-      // Clear storage
-      localStorage.removeItem(ACCESS_TOKEN_KEY);
-      localStorage.removeItem(REFRESH_TOKEN_KEY);
-      localStorage.removeItem(USER_KEY);
-      
-      // Clear user state
-      setUser(null);
-      
-      // Remove axios authorization header
-      delete axios.defaults.headers.common['Authorization'];
-      
-      setIsLoading(false);
-    }
+    try { await axios.post(`${API_URL}/auth/logout`); } catch {}
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    setUser(null);
+    delete axios.defaults.headers.common['Authorization'];
   };
-  
-  // Get the current token
-  const getToken = (): string | null => {
-    return localStorage.getItem(ACCESS_TOKEN_KEY);
-  };
-  
-  const value = {
-    user,
-    isAuthenticated: !!user,
-    isLoading,
-    login,
-    register,
-    logout,
-    getToken
-  };
-  
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+
+  const getToken = () => localStorage.getItem(ACCESS_TOKEN_KEY);
+
+  return (
+    <AuthContext.Provider value={{
+      user, isAuthenticated: !!user, isLoading,
+      isCandidate: user?.role === 'candidate',
+      isFaculty: user?.role === 'faculty',
+      isAdmin: user?.role === 'admin',
+      login, register, logout, getToken,
+    }}>
+      {children}
+    </AuthContext.Provider>
+  );
 };
 
-// Hook to use the auth context
 export const useAuth = (): AuthContextType => {
-  const context = useContext(AuthContext);
-  
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  return ctx;
 };
 
-export default AuthContext; 
+export default AuthContext;
