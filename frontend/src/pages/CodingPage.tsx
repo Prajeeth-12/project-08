@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 const MonacoEditor = lazy(() => import('@/components/team_a/MonacoEditor').then(m => ({ default: m.default ?? m.MonacoEditor })));
 
 // ── Inline TestConsole (redesigned, no legacy) ─────────────────────────────
-const API = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8001';
+const API = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8002';
 
 interface TestResult {
   status: string;
@@ -107,12 +107,10 @@ const TestConsolePanel: React.FC<{ sourceCode: string; language: string }> = ({ 
 };
 
 // ── Problem list ────────────────────────────────────────────────────────────
-const PROBLEMS = [
-  { id: 'q-001', title: 'Two Sum', difficulty: 'Easy', topic: 'Arrays', description: 'Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.\n\nYou may assume that each input would have exactly one solution.\n\nExample:\n  Input: nums = [2,7,11,15], target = 9\n  Output: [0,1]\n  Explanation: nums[0] + nums[1] = 2 + 7 = 9' },
-  { id: 'q-002', title: 'Valid Parentheses', difficulty: 'Easy', topic: 'Stack', description: 'Given a string s containing just the characters \'(\', \')\', \'{\', \'}\', \'[\' and \']\', determine if the input string is valid.\n\nAn input string is valid if:\n  1. Open brackets must be closed by the same type.\n  2. Open brackets must be closed in the correct order.' },
-  { id: 'q-003', title: 'Longest Substring', difficulty: 'Medium', topic: 'Sliding Window', description: 'Given a string s, find the length of the longest substring without repeating characters.\n\nExample:\n  Input: s = "abcabcbb"\n  Output: 3\n  Explanation: "abc" with length 3.' },
-  { id: 'q-004', title: 'Merge Intervals', difficulty: 'Medium', topic: 'Arrays', description: 'Given an array of intervals, merge all overlapping intervals, and return an array of the non-overlapping intervals that cover all the intervals in the input.' },
-  { id: 'q-005', title: 'LRU Cache', difficulty: 'Hard', topic: 'Design', description: 'Design a data structure that follows the constraints of a Least Recently Used (LRU) cache.\n\nImplement the LRUCache class with get and put operations in O(1) time complexity.' },
+// Fallback problems if question bank not yet loaded
+const FALLBACK_PROBLEMS = [
+  { id: 'q-001', title: 'Two Sum', difficulty: 'Easy', topic: 'Arrays', description: 'Given nums and target, return indices of two numbers that add to target.' },
+  { id: 'q-002', title: 'Valid Parentheses', difficulty: 'Easy', topic: 'Stack', description: 'Determine if bracket string is valid.' },
 ];
 
 const difficultyStyle = (d: string) => {
@@ -123,10 +121,33 @@ const difficultyStyle = (d: string) => {
 
 const CodingPage: React.FC = () => {
   const { user } = useAuth();
-  const [selectedProblem, setSelectedProblem] = useState(PROBLEMS[0]);
+  const [problems, setProblems] = useState(FALLBACK_PROBLEMS);
+  const [loadingProblems, setLoadingProblems] = useState(true);
+  const [selectedProblem, setSelectedProblem] = useState(FALLBACK_PROBLEMS[0]);
   const [code, setCode] = useState('# Write your solution here\n\ndef solution():\n    pass\n');
   const [language, setLanguage] = useState('python');
   const [elapsed, setElapsed] = useState(0);
+
+  // Load real problems from Supabase question bank
+  React.useEffect(() => {
+    fetch(`${API}/api/questions`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          const mapped = data.map((q: any) => ({
+            id: String(q.id),
+            title: q.title,
+            difficulty: q.difficulty_level || 'Medium',
+            topic: q.topic || 'General',
+            description: q.description || '',
+          }));
+          setProblems(mapped);
+          setSelectedProblem(mapped[0]);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingProblems(false));
+  }, []);
 
   React.useEffect(() => {
     const t = setInterval(() => setElapsed(e => e + 1), 1000);
@@ -171,7 +192,8 @@ const CodingPage: React.FC = () => {
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Problems</span>
           </div>
           <div className="flex-1 overflow-y-auto py-1">
-            {PROBLEMS.map(p => (
+            {loadingProblems && <div className="px-3 py-2 text-[10px] text-slate-500 animate-pulse">Loading…</div>}
+            {problems.map(p => (
               <button key={p.id} onClick={() => setSelectedProblem(p)}
                 className={`w-full flex flex-col items-start gap-1 px-3 py-2.5 text-left transition-colors border-l-2 ${
                   selectedProblem.id === p.id

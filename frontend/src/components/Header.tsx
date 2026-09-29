@@ -40,8 +40,7 @@ const Header: React.FC<HeaderProps> = ({ onReset, showReset = false }) => {
   // Role-aware nav links
   const navLinks = isAuthenticated ? [
     ...(isCandidate ? [
-      { to: '/home',      label: 'Dashboard', icon: <LayoutDashboard size={14} /> },
-      { to: '/interview', label: 'Practice',  icon: <Mic size={14} /> },
+      { to: '/home', label: 'Dashboard', icon: <LayoutDashboard size={14} /> },
     ] : []),
     ...((isFaculty || isAdmin) ? [
       { to: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={14} /> },

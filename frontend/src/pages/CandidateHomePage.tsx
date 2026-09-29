@@ -196,7 +196,7 @@ const InterviewCard: React.FC<{ interview: AssignedInterview }> = ({ interview }
         ) : <div />}
 
         {!isDone && (
-          <button onClick={() => navigate('/interview')}
+          <button onClick={() => navigate(`/interview?session=${interview.id}`)}
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-[#111827] hover:bg-[#1f2937] text-white text-xs font-bold transition-all shadow-sm">
             <Mic size={11} /> Start <ChevronRight size={11} />
           </button>
@@ -253,10 +253,6 @@ const CandidateHomePage: React.FC = () => {
                 : 'All caught up! Start a practice session.'}
             </p>
           </div>
-          <button onClick={() => navigate('/interview')}
-            className="hidden sm:flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#DC2626] hover:bg-[#B91C1C] text-white text-sm font-bold shadow-md hover:shadow-[0_4px_16px_rgba(220,38,38,0.3)] transition-all shrink-0">
-            <Mic size={15} /> Practice Interview
-          </button>
         </div>
         {/* Subtle decorative circles matching landing page aesthetic */}
         <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full bg-[#EAB308]/10 blur-xl" />
@@ -316,9 +312,6 @@ const CandidateHomePage: React.FC = () => {
                   {MOCK_INTERVIEWS.filter(i => i.status === 'pending').length} pending
                 </span>
               </div>
-              <Link to="/interview" className="text-xs text-[#6B7280] hover:text-[#DC2626] font-semibold flex items-center gap-0.5 transition-colors">
-                Free practice <ArrowRight size={12} />
-              </Link>
             </div>
             <div className="space-y-3">
               {MOCK_INTERVIEWS.map(interview => <InterviewCard key={interview.id} interview={interview} />)}
@@ -331,7 +324,7 @@ const CandidateHomePage: React.FC = () => {
           {[
             { icon: <BookOpen size={16} />, label: 'View my scores', sub: 'Track progress', to: '/profile?tab=scorecard', color: '#8B5CF6' },
             { icon: <Award size={16} />, label: 'Resume & profile', sub: 'Keep it updated', to: '/profile?tab=resume', color: '#10B981' },
-            { icon: <TrendingUp size={16} />, label: 'Practice freely', sub: 'No deadline pressure', to: '/interview', color: '#F97316' },
+            { icon: <BarChart3 size={16} />, label: 'My results', sub: 'Past submissions', to: '/profile?tab=history', color: '#F97316' },
           ].map(({ icon, label, sub, to, color }) => (
             <Link key={label} to={to}
               className="bg-white rounded-2xl border border-gray-200 p-4 flex items-center gap-3 hover:shadow-md hover:-translate-y-0.5 transition-all group">
