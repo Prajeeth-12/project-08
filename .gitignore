@@ -74,5 +74,8 @@ vercel.json
 
 # Personal dev scripts
 no_stage.bat
-run_venv.bat
 start.sh
+
+# Graphify knowledge graph
+graphify-out/
+graph.json
