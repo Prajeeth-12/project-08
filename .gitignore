@@ -53,7 +53,7 @@ frontend/dist/
 frontend/bun.lockb
 
 # Personal planning & docs
-planning/
+# planning/   ← unignored so team plans are tracked in repo
 CLAUDE.md
 CONTEXT.md
 setup_guide.md
