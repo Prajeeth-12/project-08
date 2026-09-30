@@ -9,8 +9,11 @@ services:
       - "8000:8000"
     env_file:
       - backend/.env
+    environment:
+      - USE_MOCK_AUTH=true
+      - DATABASE_URL=sqlite+aiosqlite:///./data/project08.db
     volumes:
-      - db_data:/app/project08.db
+      - db_data:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
