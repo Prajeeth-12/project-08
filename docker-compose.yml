@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   backend:
     build:
@@ -8,10 +6,12 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - backend/.env
+      - path: backend/.env
+        required: false          # won't crash if file missing — environment block below covers defaults
     environment:
-      - USE_MOCK_AUTH=true
-      - DATABASE_URL=sqlite+aiosqlite:///./data/project08.db
+      USE_MOCK_AUTH: "true"
+      DATABASE_URL: "sqlite+aiosqlite:///./data/project08.db"
+      SECRET_KEY: "change-me-in-production"
     volumes:
       - db_data:/app/data
     restart: unless-stopped
@@ -19,6 +19,7 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
+      start_period: 20s
       retries: 3
 
   frontend:
@@ -26,8 +27,8 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
       args:
-        VITE_API_BASE_URL: ""          # empty = nginx proxy handles /api/
-        VITE_API_WS_URL: ""            # empty = nginx proxy handles /ws/
+        VITE_API_BASE_URL: ""          # empty = nginx proxy handles all API calls
+        VITE_API_WS_URL: ""
         VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
         VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-}
     ports:
