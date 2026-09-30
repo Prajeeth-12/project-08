@@ -38,7 +38,7 @@ logger = get_logger(__name__)
 COGNITO_REGION = os.getenv("COGNITO_REGION", os.getenv("AWS_REGION", "us-east-1"))
 COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID", "")
 COGNITO_CLIENT_ID = os.getenv("COGNITO_CLIENT_ID", "")
-USE_MOCK_AUTH = os.getenv("USE_MOCK_AUTH", "false").lower() == "true"
+USE_MOCK_AUTH = os.getenv("USE_MOCK_AUTH", "true").lower() in ("true", "1", "yes")
 _MOCK_SECRET = "dev-mock-secret-not-for-production"
 
 _cognito = None
@@ -100,7 +100,13 @@ async def get_current_user_optional(
         return None
     try:
         payload = await _decode_token(credentials.credentials)
-        return {"id": payload.get("sub"), "email": payload.get("email", ""), "name": payload.get("name", ""), "payload": payload}
+        return {
+            "id": payload.get("sub"),
+            "email": payload.get("email", ""),
+            "name": payload.get("name", ""),
+            "role": payload.get("role", "candidate"),
+            "payload": payload,
+        }
     except Exception as e:
         logger.debug(f"Optional auth failed: {type(e).__name__}")
         return None
@@ -115,7 +121,13 @@ async def get_current_user(
         user_id = payload.get("sub")
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid token")
-        return {"id": user_id, "email": payload.get("email", ""), "name": payload.get("name", ""), "payload": payload}
+        return {
+            "id": user_id,
+            "email": payload.get("email", ""),
+            "name": payload.get("name", ""),
+            "role": payload.get("role", "candidate"),
+            "payload": payload,
+        }
     except HTTPException:
         raise
     except Exception:
@@ -124,12 +136,13 @@ async def get_current_user(
 # ── Pydantic models ───────────────────────────────────────────────────────
 
 class RegisterRequest(BaseModel):
-    email: EmailStr
+    email: str
     password: str
-    name: str
+    name: Optional[str] = None
+    role: Optional[str] = "candidate"
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 class RefreshRequest(BaseModel):
@@ -139,6 +152,7 @@ class UserResponse(BaseModel):
     id: str
     email: str
     name: str
+    role: Optional[str] = "candidate"
     created_at: Optional[datetime] = None
 
 class AuthTokenResponse(BaseModel):
@@ -151,28 +165,31 @@ class MessageResponse(BaseModel):
 
 # ── Mock helpers for local dev ────────────────────────────────────────────
 
-def _mock_role(email: str) -> str:
-    """Derive role from email for local dev: admin@* → admin, faculty@* → faculty, else candidate."""
+def _mock_role(email: str, explicit_role: Optional[str] = None) -> str:
+    """Derive role from email or explicit selection for local dev."""
+    if explicit_role and explicit_role.lower() in ("candidate", "faculty", "admin"):
+        return explicit_role.lower()
     e = email.lower()
-    if e.startswith("admin"):   return "admin"
-    if e.startswith("faculty"): return "faculty"
+    if "admin" in e:   return "admin"
+    if "faculty" in e: return "faculty"
     return "candidate"
 
-def _mock_tokens(user_id: str, email: str, name: str) -> AuthTokenResponse:
+def _mock_tokens(user_id: str, email: str, name: Optional[str] = None, role: Optional[str] = None) -> AuthTokenResponse:
     import time
-    role = _mock_role(email)
+    assigned_role = _mock_role(email, role)
+    display_name = name or (email.split("@")[0] if "@" in email else email)
     access = jwt.encode(
-        {"sub": user_id, "email": email, "name": name, "role": role, "exp": int(time.time()) + 3600},
+        {"sub": user_id, "email": email, "name": display_name, "role": assigned_role, "exp": int(time.time()) + 3600},
         _MOCK_SECRET, algorithm="HS256"
     )
     refresh = jwt.encode(
-        {"sub": user_id, "email": email, "name": name, "role": role, "type": "refresh", "exp": int(time.time()) + 86400 * 30},
+        {"sub": user_id, "email": email, "name": display_name, "role": assigned_role, "type": "refresh", "exp": int(time.time()) + 86400 * 30},
         _MOCK_SECRET, algorithm="HS256"
     )
     return AuthTokenResponse(
         access_token=access,
         refresh_token=refresh,
-        user=UserResponse(id=user_id, email=email, name=name or email.split("@")[0]),
+        user=UserResponse(id=user_id, email=email, name=display_name, role=assigned_role),
     )
 
 # ── Route factory ─────────────────────────────────────────────────────────
@@ -182,10 +199,10 @@ def create_auth_api(app):
 
     @router.post("/register", response_model=AuthTokenResponse)
     async def register(body: RegisterRequest):
+        if USE_MOCK_AUTH:
+            import uuid
+            return _mock_tokens(str(uuid.uuid4()), body.email, body.name, body.role)
         if not _cognito_available():
-            if USE_MOCK_AUTH:
-                import uuid
-                return _mock_tokens(str(uuid.uuid4()), body.email, body.name)
             raise HTTPException(status_code=503, detail="Auth service not configured")
         try:
             cog = _get_cognito()
@@ -228,10 +245,10 @@ def create_auth_api(app):
 
     @router.post("/login", response_model=AuthTokenResponse)
     async def login(body: LoginRequest):
+        if USE_MOCK_AUTH:
+            import uuid
+            return _mock_tokens(str(uuid.uuid4()), body.email, body.email.split("@")[0])
         if not _cognito_available():
-            if USE_MOCK_AUTH:
-                import uuid
-                return _mock_tokens(str(uuid.uuid4()), body.email, body.email.split("@")[0])
             raise HTTPException(status_code=503, detail="Auth service not configured")
         try:
             cog = _get_cognito()
@@ -260,10 +277,10 @@ def create_auth_api(app):
 
     @router.post("/refresh", response_model=AuthTokenResponse)
     async def refresh(body: RefreshRequest):
+        if USE_MOCK_AUTH:
+            payload = jwt.decode(body.refresh_token, _MOCK_SECRET, algorithms=["HS256"])
+            return _mock_tokens(payload["sub"], payload.get("email", ""), payload.get("name", ""), payload.get("role"))
         if not _cognito_available():
-            if USE_MOCK_AUTH:
-                payload = jwt.decode(body.refresh_token, _MOCK_SECRET, algorithms=["HS256"])
-                return _mock_tokens(payload["sub"], payload.get("email", ""), "")
             raise HTTPException(status_code=503, detail="Auth service not configured")
         try:
             cog = _get_cognito()
@@ -285,7 +302,13 @@ def create_auth_api(app):
 
     @router.get("/me", response_model=UserResponse)
     async def me(user: Dict[str, Any] = Depends(get_current_user)):
-        return UserResponse(id=user["id"], email=user["email"], name=user["name"])
+        display_name = user.get("name") or (user["email"].split("@")[0] if "@" in user["email"] else user["email"])
+        return UserResponse(
+            id=user["id"],
+            email=user["email"],
+            name=display_name,
+            role=user.get("role", "candidate"),
+        )
 
     @router.post("/logout", response_model=MessageResponse)
     async def logout(user: Dict[str, Any] = Depends(get_current_user)):

@@ -208,7 +208,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # Allowed origins — restrict in production; wildcard only for local dev
 _ALLOWED_ORIGINS = [o.strip() for o in os.getenv(
     "CORS_ALLOWED_ORIGINS",
-    "http://localhost:3000,http://localhost:5173,http://localhost:8080,http://localhost:8081,http://localhost:8082"
+    "http://localhost:3000,http://localhost:5173,http://localhost:8000,http://localhost:8080,http://localhost:8081,http://localhost:8082"
 ).split(",") if o.strip()]
 
 app.add_middleware(

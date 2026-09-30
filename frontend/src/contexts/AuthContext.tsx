@@ -33,7 +33,14 @@ const ACCESS_TOKEN_KEY = 'aia_access_token';
 const REFRESH_TOKEN_KEY = 'aia_refresh_token';
 const USER_KEY = 'aia_user';
 
-const API_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8001';
+// Empty string = Docker/nginx proxy mode (relative paths); fallback = local dev
+const API_URL = (import.meta as any).env?.VITE_API_BASE_URL ?? 'http://localhost:8010';
+
+// JWT uses base64url (- and _ instead of + and /); atob() needs standard base64
+const parseJwtPayload = (token: string): Record<string, unknown> => {
+  const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+  return JSON.parse(atob(b64.padEnd(b64.length + (4 - b64.length % 4) % 4, '=')));
+};
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -71,7 +78,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setIsLoading(true);
     try {
       const { data } = await axios.post<AuthTokens>(`${API_URL}/auth/register`, { email, password, name, role });
-      const u: User = { ...data.user, role: data.user.role || role };
+      // Try to read role from JWT payload (mock auth encodes it there)
+      let jwtRole: UserRole | undefined;
+      try {
+        const payload = parseJwtPayload(data.access_token);
+        if (payload.role) jwtRole = payload.role as UserRole;
+      } catch {}
+      const u: User = { ...data.user, role: jwtRole || data.user.role || role };
       localStorage.setItem(ACCESS_TOKEN_KEY, data.access_token);
       localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
       localStorage.setItem(USER_KEY, JSON.stringify(u));
@@ -85,7 +98,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setIsLoading(true);
     try {
       const { data } = await axios.post<AuthTokens>(`${API_URL}/auth/login`, { email, password });
-      const u: User = { ...data.user, role: data.user.role || 'candidate' };
+      let jwtRole: UserRole | undefined;
+      try {
+        const payload = parseJwtPayload(data.access_token);
+        if (payload.role) jwtRole = payload.role as UserRole;
+      } catch {}
+      const u: User = { ...data.user, role: jwtRole || data.user.role || 'candidate' };
       localStorage.setItem(ACCESS_TOKEN_KEY, data.access_token);
       localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
       localStorage.setItem(USER_KEY, JSON.stringify(u));

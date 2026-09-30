@@ -29,7 +29,7 @@ cd ..
 
 echo.
 echo Starting backend server...
-start cmd /k "cd backend && call venv\Scripts\activate && set PYTHONPATH=%PROJECT_ROOT% && python -m uvicorn main:app --reload --port 8000"
+start cmd /k "cd backend && call venv\Scripts\activate && set PYTHONPATH=%PROJECT_ROOT% && set USE_MOCK_AUTH=true && python -m uvicorn main:app --reload --port 8002"
 
 echo.
 echo Installing frontend dependencies...
@@ -44,8 +44,8 @@ start cmd /k "cd frontend && npm run dev"
 echo.
 echo Services are starting in separate windows.
 echo.
-echo - Backend: http://localhost:8000
-echo - Frontend: http://localhost:8080
+echo - Backend: http://localhost:8002
+echo - Frontend: http://localhost:8000
 echo.
 echo If you encounter errors, check the console windows for details.
 

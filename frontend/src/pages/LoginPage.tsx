@@ -35,8 +35,14 @@ const LoginPage: React.FC = () => {
       await login(email, password);
       // redirect handled by useEffect above
     } catch (err: any) {
-      const msg = err?.response?.data?.detail || 'Invalid email or password.';
-      setError(msg);
+      let detailMsg = 'Invalid email or password.';
+      const d = err?.response?.data?.detail;
+      if (typeof d === 'string') {
+        detailMsg = d;
+      } else if (Array.isArray(d) && d.length > 0) {
+        detailMsg = d.map((item: any) => item.msg || item.message || JSON.stringify(item)).join(', ');
+      }
+      setError(detailMsg);
     } finally {
       setLoading(false);
     }
@@ -117,8 +123,8 @@ const LoginPage: React.FC = () => {
             <div className="space-y-1.5">
               <label className="text-sm font-semibold text-[#111827]">Email address</label>
               <input
-                type="email" value={email} onChange={e => setEmail(e.target.value)}
-                placeholder="you@example.com" autoComplete="email" required
+                type="text" value={email} onChange={e => setEmail(e.target.value)}
+                placeholder="you@example.com or candidate" autoComplete="email" required
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm text-[#111827]
                   placeholder-gray-400 bg-white focus:outline-none focus:border-[#DC2626]
                   focus:ring-2 focus:ring-[#DC2626]/10 transition-all"
